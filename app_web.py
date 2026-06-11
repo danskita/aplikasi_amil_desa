@@ -31,11 +31,13 @@ def setup_multiuser():
         try: c.execute(f"ALTER TABLE {tb} ADD COLUMN nama_desa TEXT")
         except: pass
 
+    # Menambahkan kolom "nominal_kupon" untuk fitur Kupon Infaq
     kolom_baru_pengaturan = [
         ("bendahara", "TEXT"), ("pct_amil_kec", "REAL DEFAULT 12.5"), ("pct_ketua_kec", "REAL DEFAULT 40.0"), 
         ("pct_sekretaris_kec", "REAL DEFAULT 30.0"), ("pct_bendahara_kec", "REAL DEFAULT 20.0"), ("pct_lainnya_kec", "REAL DEFAULT 10.0"),
         ("pct_olk_kec", "REAL DEFAULT 25.0"), ("pct_sarana_kec", "REAL DEFAULT 25.0"), ("pct_ngaji_kec", "REAL DEFAULT 25.0"), 
-        ("pct_madrasah_kec", "REAL DEFAULT 25.0"), ("no_hp", "TEXT"), ("total_jiwa", "INTEGER"), ("total_kk", "INTEGER")
+        ("pct_madrasah_kec", "REAL DEFAULT 25.0"), ("no_hp", "TEXT"), ("total_jiwa", "INTEGER"), ("total_kk", "INTEGER"),
+        ("nominal_kupon", "REAL DEFAULT 2000.0")
     ]
     for col, tipe in kolom_baru_pengaturan:
         try: c.execute(f"ALTER TABLE pengaturan ADD COLUMN {col} {tipe}")
@@ -287,12 +289,29 @@ elif pilihan_menu == "📂 Master Penerima Kecamatan":
     df_mp = pd.read_sql_query("SELECT id as ID, program as Program, nama_penerima as 'Nama Penerima' FROM master_penerima_kec ORDER BY program ASC", conn)
     if not df_mp.empty:
         st.dataframe(df_mp, width='stretch', hide_index=True)
-        with st.expander("🗑️ Hapus Data Penerima"):
-            id_h = st.number_input("ID Hapus:", min_value=0, step=1, key="del_master_pen_kec")
-            if st.button("Hapus Data", key="btn_hapus_master_pen_kec"): 
-                c.execute("DELETE FROM master_penerima_kec WHERE id=?", (id_h,))
-                conn.commit()
-                st.rerun()
+        col_del, col_edit = st.columns(2)
+        with col_del:
+            with st.expander("🗑️ Hapus Data Penerima"):
+                id_h = st.number_input("ID Hapus:", min_value=0, step=1, key="del_master_pen_kec")
+                if st.button("Hapus Data", key="btn_hapus_master_pen_kec"): 
+                    c.execute("DELETE FROM master_penerima_kec WHERE id=?", (id_h,))
+                    conn.commit()
+                    st.rerun()
+        with col_edit:
+            with st.expander("✏️ Ubah Data Penerima"):
+                pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama Penerima']}" for _, r in df_mp.iterrows()])
+                if pil_edit != "Pilih...":
+                    id_e = pil_edit.split(" - ")[0]
+                    c.execute("SELECT program, nama_penerima FROM master_penerima_kec WHERE id=?", (id_e,))
+                    r_e = c.fetchone()
+                    if r_e:
+                        with st.form("f_edit_master_kec"):
+                            es_prog = st.selectbox("Program:", ["Operasional Lembaga Keagamaan", "Sarana Keagamaan", "Insentif Guru Ngaji", "Insentif Guru Madrasah Diniyah"], index=["Operasional Lembaga Keagamaan", "Sarana Keagamaan", "Insentif Guru Ngaji", "Insentif Guru Madrasah Diniyah"].index(r_e[0]))
+                            es_nama = st.text_input("Nama Penerima:", value=r_e[1])
+                            if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                c.execute("UPDATE master_penerima_kec SET program=?, nama_penerima=? WHERE id=?", (es_prog, es_nama, id_e))
+                                conn.commit()
+                                st.rerun()
     conn.close()
 
 elif pilihan_menu == "📤 Distribusi UPZ Kecamatan":
@@ -377,12 +396,31 @@ elif pilihan_menu == "📤 Distribusi UPZ Kecamatan":
             df_p = df_prog.copy()
             df_p['Uang (Rp)'] = df_p['Uang (Rp)'].apply(format_rupiah)
             st.dataframe(df_p, width='stretch', hide_index=True)
-            with st.expander("🗑️ Hapus Data Program"):
-                id_h = st.number_input("ID Hapus Program:", min_value=0, step=1, key="d_p")
-                if st.button("Hapus Program", key="hapus_prog_kec"): 
-                    c.execute("DELETE FROM distribusi_kec_program WHERE id=?", (id_h,))
-                    conn.commit()
-                    st.rerun()
+            col_del, col_edit = st.columns(2)
+            with col_del:
+                with st.expander("🗑️ Hapus Data Program"):
+                    id_h = st.number_input("ID Hapus Program:", min_value=0, step=1, key="d_p")
+                    if st.button("Hapus Program", key="hapus_prog_kec"): 
+                        c.execute("DELETE FROM distribusi_kec_program WHERE id=?", (id_h,))
+                        conn.commit()
+                        st.rerun()
+            with col_edit:
+                with st.expander("✏️ Ubah Data Program"):
+                    pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Penerima']}" for _, r in df_prog.iterrows()], key="e_prog_k")
+                    if pil_edit != "Pilih...":
+                        id_e = pil_edit.split(" - ")[0]
+                        c.execute("SELECT program, penerima, beras, uang FROM distribusi_kec_program WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_prog_k"):
+                                e_prog = st.text_input("Program:", value=r_e[0])
+                                e_pen = st.text_input("Penerima:", value=r_e[1])
+                                e_b = st.number_input("Beras:", value=float(r_e[2]), step=0.5)
+                                e_u = st.number_input("Uang:", value=int(r_e[3]), step=1000)
+                                if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                    c.execute("UPDATE distribusi_kec_program SET program=?, penerima=?, beras=?, uang=? WHERE id=?", (e_prog, e_pen, e_b, e_u, id_e))
+                                    conn.commit()
+                                    st.rerun()
 
     with tab_amil:
         jab_pilihan = st.selectbox("Pilih Jabatan (Auto-Hitung):", ["Pilih Jabatan...", "Ketua", "Sekretaris", "Bendahara", "Anggota / Ops"])
@@ -415,12 +453,31 @@ elif pilihan_menu == "📤 Distribusi UPZ Kecamatan":
             df_a = df_amil.copy()
             df_a['Uang (Rp)'] = df_a['Uang (Rp)'].apply(format_rupiah)
             st.dataframe(df_a, width='stretch', hide_index=True)
-            with st.expander("🗑️ Hapus Data Amil"):
-                id_ha = st.number_input("ID Hapus Amil:", min_value=0, step=1, key="d_a")
-                if st.button("Hapus Amil", key="hapus_amil_kec"): 
-                    c.execute("DELETE FROM distribusi_kec_amil WHERE id=?", (id_ha,))
-                    conn.commit()
-                    st.rerun()
+            col_del, col_edit = st.columns(2)
+            with col_del:
+                with st.expander("🗑️ Hapus Data Amil"):
+                    id_ha = st.number_input("ID Hapus Amil:", min_value=0, step=1, key="d_a")
+                    if st.button("Hapus Amil", key="hapus_amil_kec"): 
+                        c.execute("DELETE FROM distribusi_kec_amil WHERE id=?", (id_ha,))
+                        conn.commit()
+                        st.rerun()
+            with col_edit:
+                with st.expander("✏️ Ubah Data Amil"):
+                    pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama Amil']}" for _, r in df_amil.iterrows()], key="e_amil_k")
+                    if pil_edit != "Pilih...":
+                        id_e = pil_edit.split(" - ")[0]
+                        c.execute("SELECT nama, jabatan, beras, uang FROM distribusi_kec_amil WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_amil_k"):
+                                e_na = st.text_input("Nama Amil:", value=r_e[0])
+                                e_ja = st.text_input("Jabatan:", value=r_e[1])
+                                e_b = st.number_input("Beras:", value=float(r_e[2]), step=0.5)
+                                e_u = st.number_input("Uang:", value=int(r_e[3]), step=1000)
+                                if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                    c.execute("UPDATE distribusi_kec_amil SET nama=?, jabatan=?, beras=?, uang=? WHERE id=?", (e_na, e_ja, e_b, e_u, id_e))
+                                    conn.commit()
+                                    st.rerun()
     conn.close()
 
 elif pilihan_menu == "🖨️ Laporan Rekap Desa":
@@ -556,12 +613,31 @@ elif pilihan_menu == "👥 Kelola Pengguna":
                     st.error("Username sudah ada!")
     df_u = pd.read_sql_query("SELECT id as ID, username as Username, password as Password, role as Akses, nama_desa as Desa FROM users", conn)
     st.dataframe(df_u, width='stretch', hide_index=True)
-    with st.expander("🗑️ Hapus Akun"):
-        id_h = st.number_input("ID Hapus Akun:", min_value=0, step=1, key="id_hapus_akun")
-        if st.button("Hapus Akun", key="btn_hapus_akun"): 
-            c.execute("DELETE FROM users WHERE id=?", (id_h,))
-            conn.commit()
-            st.rerun()
+    col_del, col_edit = st.columns(2)
+    with col_del:
+        with st.expander("🗑️ Hapus Akun"):
+            id_h = st.number_input("ID Hapus Akun:", min_value=0, step=1, key="id_hapus_akun")
+            if st.button("Hapus Akun", key="btn_hapus_akun"): 
+                c.execute("DELETE FROM users WHERE id=?", (id_h,))
+                conn.commit()
+                st.rerun()
+    with col_edit:
+        with st.expander("✏️ Ubah Akun"):
+            pil_edit = st.selectbox("Pilih Akun:", ["Pilih..."] + [f"{r['ID']} - {r['Username']}" for _, r in df_u.iterrows()], key="e_user")
+            if pil_edit != "Pilih...":
+                id_e = pil_edit.split(" - ")[0]
+                c.execute("SELECT username, password, role, nama_desa FROM users WHERE id=?", (id_e,))
+                r_e = c.fetchone()
+                if r_e:
+                    with st.form("f_e_user"):
+                        e_usr = st.text_input("Username:", value=r_e[0])
+                        e_pass = st.text_input("Password:", value=r_e[1])
+                        e_role = st.selectbox("Akses:", ["desa", "kecamatan", "user", "admin"], index=["desa", "kecamatan", "user", "admin"].index(r_e[2]))
+                        e_ds = st.text_input("Nama Desa:", value=r_e[3])
+                        if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                            c.execute("UPDATE users SET username=?, password=?, role=?, nama_desa=? WHERE id=?", (e_usr, e_pass, e_role, e_ds, id_e))
+                            conn.commit()
+                            st.rerun()
     conn.close()
 
 # =========================================================================
@@ -602,7 +678,7 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
     res_tarif = c.fetchone()
     t_b = float(res_tarif[0]) if res_tarif and res_tarif[0] else 2.5
     t_u = float(res_tarif[1]) if res_tarif and res_tarif[1] else 35000
-    nom_kupon = float(res_tarif[2]) if res_tarif and res_tarif[2] else 0.0
+    nom_kupon = float(res_tarif[2]) if res_tarif and res_tarif[2] else 2000.0
 
     selected_dkm = st.selectbox("Pilih UPZ DKM Induk:", ["Pilih DKM..."] + daftar_dkm) if daftar_dkm else st.text_input("Nama UPZ DKM Induk:")
     with st.form("form_penerimaan"):
@@ -624,7 +700,7 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
             k_diterima = st.number_input("Kupon Diterima:", min_value=0, value=0)
             k_terjual = st.number_input("Kupon Terjual:", min_value=0, value=0)
             k_kembali = st.number_input("Kupon Kembali:", min_value=0, value=0)
-            infaq_uang = st.number_input("Uang Infaq (Rp):", min_value=0, value=0)
+            infaq_uang = st.number_input("Uang Infaq Tunai (Rp):", min_value=0, value=0)
 
         if st.form_submit_button("💾 Simpan", width='stretch'):
             tipe_input = "jiwa" if mode_input == "Berdasarkan Data Jiwa" else "fisik"
@@ -634,22 +710,45 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
                 fb = f_b; fu = f_u; tb = fb / 0.175 if fb > 0 else 0; tu = fu / 0.175 if fu > 0 else 0
                 jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0; jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
             
-            infaq_rp = float(infaq_uang) if infaq_uang > 0 else float(k_terjual * nom_kupon)
+            # --- LOGIKA KUPON DIKEMBALIKAN (Uang Tunai + Hasil Kupon x Rp 2000) ---
+            infaq_rp = float(infaq_uang) + float(k_terjual * nom_kupon)
+            # ----------------------------------------------------------------------
             c.execute('''INSERT INTO setoran_dkm (nama_dkm, alamat_dkm, perwakilan, alamat_perwakilan, tipe_input, jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, total_beras, total_uang, infaq, kupon_diterima, kupon_terjual, kupon_kembali, nama_desa) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (selected_dkm, alamat_dkm, wakil_upz, alamat_wakil, tipe_input, jiwa_b, jiwa_u, fb, fu, tb, tu, infaq_rp, k_diterima, k_terjual, k_kembali, st.session_state["nama_desa"]))
             conn.commit()
             st.rerun()
 
     df_setoran = pd.read_sql_query(f"SELECT id as 'ID', nama_dkm as 'Nama DKM', (jiwa_beras + jiwa_uang) as 'Total Jiwa', total_beras as 'Beras (Kg)', total_uang as 'Uang (Rp)', infaq as 'Infaq (Rp)' FROM setoran_dkm WHERE nama_desa = '{st.session_state['nama_desa']}' ORDER BY id DESC", conn)
     if not df_setoran.empty:
-        df_setoran['Uang (Rp)'] = df_setoran['Uang (Rp)'].apply(format_rupiah)
-        df_setoran['Infaq (Rp)'] = df_setoran['Infaq (Rp)'].apply(format_rupiah)
-        st.dataframe(df_setoran, width='stretch', hide_index=True)
-        with st.expander("🗑️ Hapus Setoran"):
-            id_hapus = st.number_input("ID Hapus:", min_value=0, step=1, key="del_pen_desa")
-            if st.button("Hapus Setoran", key="btn_hapus_pen_desa"): 
-                c.execute("DELETE FROM setoran_dkm WHERE id=?", (id_hapus,))
-                conn.commit()
-                st.rerun()
+        df_sd = df_setoran.copy()
+        df_sd['Uang (Rp)'] = df_sd['Uang (Rp)'].apply(format_rupiah)
+        df_sd['Infaq (Rp)'] = df_sd['Infaq (Rp)'].apply(format_rupiah)
+        st.dataframe(df_sd, width='stretch', hide_index=True)
+        col_del, col_edit = st.columns(2)
+        with col_del:
+            with st.expander("🗑️ Hapus Setoran"):
+                id_hapus = st.number_input("ID Hapus:", min_value=0, step=1, key="del_pen_desa")
+                if st.button("Hapus Setoran", key="btn_hapus_pen_desa"): 
+                    c.execute("DELETE FROM setoran_dkm WHERE id=?", (id_hapus,))
+                    conn.commit()
+                    st.rerun()
+        with col_edit:
+            with st.expander("✏️ Ubah Total Infaq & Kupon"):
+                pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama DKM']}" for _, r in df_setoran.iterrows()], key="e_pen_desa")
+                if pil_edit != "Pilih...":
+                    id_e = pil_edit.split(" - ")[0]
+                    c.execute("SELECT kupon_terjual, infaq FROM setoran_dkm WHERE id=?", (id_e,))
+                    r_e = c.fetchone()
+                    if r_e:
+                        uang_cash_lama = float(r_e[1]) - float(r_e[0] * nom_kupon) if float(r_e[1]) >= float(r_e[0] * nom_kupon) else float(r_e[1])
+                        with st.form("f_e_pen_desa"):
+                            st.info("Edit nilai Kupon dan Tunai untuk menyesuaikan Total Infaq.")
+                            e_kupon = st.number_input("Kupon Terjual Baru:", value=int(r_e[0]))
+                            e_tunai = st.number_input("Uang Infaq Tunai Baru (Rp):", value=int(uang_cash_lama), step=1000)
+                            if st.form_submit_button("Simpan Perubahan Infaq", width='stretch'):
+                                in_rp_baru = float(e_tunai) + float(e_kupon * nom_kupon)
+                                c.execute("UPDATE setoran_dkm SET kupon_terjual=?, infaq=? WHERE id=?", (e_kupon, in_rp_baru, id_e))
+                                conn.commit()
+                                st.rerun()
     conn.close()
 
 elif pilihan_menu == "📤 Distribusi UPZ":
@@ -673,14 +772,34 @@ elif pilihan_menu == "📤 Distribusi UPZ":
                 st.rerun()
         df_sab = pd.read_sql_query(f"SELECT id as ID, program as Program, penerima as Penerima, beras as Beras, uang as Uang FROM sabilillah WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         if not df_sab.empty:
-            df_sab['Uang'] = df_sab['Uang'].apply(format_rupiah)
-            st.dataframe(df_sab, width='stretch', hide_index=True)
-            with st.expander("🗑️ Hapus Sabilillah"):
-                id_h = st.number_input("ID Hapus:", min_value=0, key="dsab")
-                if st.button("Hapus Sabilillah", key="btn_hapus_sab"): 
-                    c.execute("DELETE FROM sabilillah WHERE id=?", (id_h,))
-                    conn.commit()
-                    st.rerun()
+            df_sab_disp = df_sab.copy()
+            df_sab_disp['Uang'] = df_sab_disp['Uang'].apply(format_rupiah)
+            st.dataframe(df_sab_disp, width='stretch', hide_index=True)
+            col_del, col_edit = st.columns(2)
+            with col_del:
+                with st.expander("🗑️ Hapus Sabilillah"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="dsab")
+                    if st.button("Hapus Sabilillah", key="btn_hapus_sab"): 
+                        c.execute("DELETE FROM sabilillah WHERE id=?", (id_h,))
+                        conn.commit()
+                        st.rerun()
+            with col_edit:
+                with st.expander("✏️ Ubah Sabilillah"):
+                    pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Penerima']}" for _, r in df_sab.iterrows()], key="esab")
+                    if pil_edit != "Pilih...":
+                        id_e = pil_edit.split(" - ")[0]
+                        c.execute("SELECT program, penerima, beras, uang FROM sabilillah WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_esab"):
+                                e_pr = st.text_input("Program:", value=r_e[0])
+                                e_pe = st.text_input("Penerima:", value=r_e[1])
+                                e_b = st.number_input("Beras (Kg):", value=float(r_e[2]), step=0.5)
+                                e_u = st.number_input("Uang (Rp):", value=int(r_e[3]), step=1000)
+                                if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                    c.execute("UPDATE sabilillah SET program=?, penerima=?, beras=?, uang=? WHERE id=?", (e_pr, e_pe, e_b, e_u, id_e))
+                                    conn.commit()
+                                    st.rerun()
 
     with tab_amil:
         with st.form("form_amil"):
@@ -697,14 +816,34 @@ elif pilihan_menu == "📤 Distribusi UPZ":
                 st.rerun()
         df_amil = pd.read_sql_query(f"SELECT id as ID, nama as Nama, jabatan as Jabatan, beras as Beras, uang as Uang FROM amilin WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         if not df_amil.empty:
-            df_amil['Uang'] = df_amil['Uang'].apply(format_rupiah)
-            st.dataframe(df_amil, width='stretch', hide_index=True)
-            with st.expander("🗑️ Hapus Amilin"):
-                id_h = st.number_input("ID Hapus:", min_value=0, key="dami")
-                if st.button("Hapus Amilin", key="btn_hapus_amil_desa"): 
-                    c.execute("DELETE FROM amilin WHERE id=?", (id_h,))
-                    conn.commit()
-                    st.rerun()
+            df_amil_disp = df_amil.copy()
+            df_amil_disp['Uang'] = df_amil_disp['Uang'].apply(format_rupiah)
+            st.dataframe(df_amil_disp, width='stretch', hide_index=True)
+            col_del, col_edit = st.columns(2)
+            with col_del:
+                with st.expander("🗑️ Hapus Amilin"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="dami")
+                    if st.button("Hapus Amilin", key="btn_hapus_amil_desa"): 
+                        c.execute("DELETE FROM amilin WHERE id=?", (id_h,))
+                        conn.commit()
+                        st.rerun()
+            with col_edit:
+                with st.expander("✏️ Ubah Amilin"):
+                    pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama']}" for _, r in df_amil.iterrows()], key="eami")
+                    if pil_edit != "Pilih...":
+                        id_e = pil_edit.split(" - ")[0]
+                        c.execute("SELECT nama, jabatan, beras, uang FROM amilin WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_eami"):
+                                e_nm = st.text_input("Nama Amil:", value=r_e[0])
+                                e_jb = st.text_input("Jabatan:", value=r_e[1])
+                                e_b = st.number_input("Beras (Kg):", value=float(r_e[2]), step=0.5)
+                                e_u = st.number_input("Uang (Rp):", value=int(r_e[3]), step=1000)
+                                if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                    c.execute("UPDATE amilin SET nama=?, jabatan=?, beras=?, uang=? WHERE id=?", (e_nm, e_jb, e_b, e_u, id_e))
+                                    conn.commit()
+                                    st.rerun()
     conn.close()
 
 elif pilihan_menu == "🐄 Data Qurban":
@@ -736,12 +875,32 @@ elif pilihan_menu == "🐄 Data Qurban":
     df_qurban = pd.read_sql_query(f"SELECT id as ID, tahun as Tahun, nama_dkm as DKM, jenis_hewan as Hewan, jumlah_hewan as Ekor, jumlah_mudhohi as Mudhohi FROM qurban WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
     if not df_qurban.empty: 
         st.dataframe(df_qurban, width='stretch', hide_index=True)
-        with st.expander("🗑️ Hapus Data Qurban"):
-            id_h = st.number_input("ID Hapus:", min_value=0, key="id_hapus_qurban")
-            if st.button("Hapus Data", key="btn_hapus_qurban"): 
-                c.execute("DELETE FROM qurban WHERE id=?", (id_h,))
-                conn.commit()
-                st.rerun()
+        col_del, col_edit = st.columns(2)
+        with col_del:
+            with st.expander("🗑️ Hapus Data Qurban"):
+                id_h = st.number_input("ID Hapus:", min_value=0, key="id_hapus_qurban")
+                if st.button("Hapus Data", key="btn_hapus_qurban"): 
+                    c.execute("DELETE FROM qurban WHERE id=?", (id_h,))
+                    conn.commit()
+                    st.rerun()
+        with col_edit:
+            with st.expander("✏️ Ubah Data Qurban"):
+                pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['DKM']}" for _, r in df_qurban.iterrows()], key="e_qurban")
+                if pil_edit != "Pilih...":
+                    id_e = pil_edit.split(" - ")[0]
+                    c.execute("SELECT tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban WHERE id=?", (id_e,))
+                    r_e = c.fetchone()
+                    if r_e:
+                        with st.form("f_e_qurban"):
+                            e_th = st.text_input("Tahun:", value=r_e[0])
+                            e_dkm = st.text_input("DKM:", value=r_e[1])
+                            e_jns = st.selectbox("Jenis Hewan:", ["Sapi", "Domba", "Kambing", "Kerbau"], index=["Sapi", "Domba", "Kambing", "Kerbau"].index(r_e[2]))
+                            e_hwn = st.number_input("Ekor:", value=int(r_e[3]))
+                            e_mud = st.number_input("Mudhohi:", value=int(r_e[4]))
+                            if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                c.execute("UPDATE qurban SET tahun=?, nama_dkm=?, jenis_hewan=?, jumlah_hewan=?, jumlah_mudhohi=? WHERE id=?", (e_th, e_dkm, e_jns, e_hwn, e_mud, id_e))
+                                conn.commit()
+                                st.rerun()
     conn.close()
 
 elif pilihan_menu == "📂 Kelola Data Master":
@@ -762,6 +921,28 @@ elif pilihan_menu == "📂 Kelola Data Master":
                 st.rerun()
         df_dkm = pd.read_sql_query(f"SELECT id as ID, nama_dkm as DKM, ketua_dkm as Ketua, alamat_dkm as Alamat FROM master_dkm WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         st.dataframe(df_dkm, width='stretch', hide_index=True)
+        if not df_dkm.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.expander("🗑️ Hapus DKM"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_dkm")
+                    if st.button("Hapus", key="b_d_dkm"): 
+                        c.execute("DELETE FROM master_dkm WHERE id=?", (id_h,)); conn.commit(); st.rerun()
+            with c2:
+                with st.expander("✏️ Edit DKM"):
+                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['DKM']}" for _, r in df_dkm.iterrows()], key="e_dkm")
+                    if pil_e != "Pilih...":
+                        id_e = pil_e.split(" - ")[0]
+                        c.execute("SELECT nama_dkm, ketua_dkm, alamat_dkm, perwakilan FROM master_dkm WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_dkm"):
+                                e_nm = st.text_input("DKM:", value=r_e[0])
+                                e_kt = st.text_input("Ketua:", value=r_e[1])
+                                e_al = st.text_input("Alamat:", value=r_e[2])
+                                e_wk = st.text_input("Wakil:", value=r_e[3])
+                                if st.form_submit_button("Simpan"):
+                                    c.execute("UPDATE master_dkm SET nama_dkm=?, ketua_dkm=?, alamat_dkm=?, perwakilan=? WHERE id=?", (e_nm, e_kt, e_al, e_wk, id_e)); conn.commit(); st.rerun()
         
     with t2:
         with st.form("f_ngaji"):
@@ -774,6 +955,27 @@ elif pilihan_menu == "📂 Kelola Data Master":
                 st.rerun()
         df_ng = pd.read_sql_query(f"SELECT id as ID, nama, lembaga, dkm FROM guru_ngaji WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         st.dataframe(df_ng, width='stretch', hide_index=True)
+        if not df_ng.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.expander("🗑️ Hapus Guru"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_ngaji")
+                    if st.button("Hapus", key="b_d_ngaji"): 
+                        c.execute("DELETE FROM guru_ngaji WHERE id=?", (id_h,)); conn.commit(); st.rerun()
+            with c2:
+                with st.expander("✏️ Edit Guru"):
+                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['nama']}" for _, r in df_ng.iterrows()], key="e_ngaji")
+                    if pil_e != "Pilih...":
+                        id_e = pil_e.split(" - ")[0]
+                        c.execute("SELECT nama, lembaga, dkm FROM guru_ngaji WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_ngaji"):
+                                e_nm = st.text_input("Nama:", value=r_e[0])
+                                e_lm = st.text_input("Lembaga:", value=r_e[1])
+                                e_dk = st.text_input("DKM:", value=r_e[2])
+                                if st.form_submit_button("Simpan"):
+                                    c.execute("UPDATE guru_ngaji SET nama=?, lembaga=?, dkm=? WHERE id=?", (e_nm, e_lm, e_dk, id_e)); conn.commit(); st.rerun()
         
     with t3:
         with st.form("f_ksab"):
@@ -785,6 +987,26 @@ elif pilihan_menu == "📂 Kelola Data Master":
                 st.rerun()
         df_ksab = pd.read_sql_query(f"SELECT id as ID, nama as Kategori, bobot as Bobot FROM master_kategori_sab WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         st.dataframe(df_ksab, width='stretch', hide_index=True)
+        if not df_ksab.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.expander("🗑️ Hapus Kategori"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_ksab")
+                    if st.button("Hapus", key="b_d_ksab"): 
+                        c.execute("DELETE FROM master_kategori_sab WHERE id=?", (id_h,)); conn.commit(); st.rerun()
+            with c2:
+                with st.expander("✏️ Edit Kategori"):
+                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Kategori']}" for _, r in df_ksab.iterrows()], key="e_ksab")
+                    if pil_e != "Pilih...":
+                        id_e = pil_e.split(" - ")[0]
+                        c.execute("SELECT nama, bobot FROM master_kategori_sab WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_ksab"):
+                                e_nm = st.text_input("Kategori:", value=r_e[0])
+                                e_bb = st.number_input("Bobot:", value=float(r_e[1]))
+                                if st.form_submit_button("Simpan"):
+                                    c.execute("UPDATE master_kategori_sab SET nama=?, bobot=? WHERE id=?", (e_nm, e_bb, id_e)); conn.commit(); st.rerun()
         
     with t4:
         with st.form("f_jami"):
@@ -796,6 +1018,26 @@ elif pilihan_menu == "📂 Kelola Data Master":
                 st.rerun()
         df_jami = pd.read_sql_query(f"SELECT id as ID, nama as Jabatan, bobot as Bobot FROM master_jabatan_amil WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         st.dataframe(df_jami, width='stretch', hide_index=True)
+        if not df_jami.empty:
+            c1, c2 = st.columns(2)
+            with c1:
+                with st.expander("🗑️ Hapus Jabatan"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_jami")
+                    if st.button("Hapus", key="b_d_jami"): 
+                        c.execute("DELETE FROM master_jabatan_amil WHERE id=?", (id_h,)); conn.commit(); st.rerun()
+            with c2:
+                with st.expander("✏️ Edit Jabatan"):
+                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Jabatan']}" for _, r in df_jami.iterrows()], key="e_jami")
+                    if pil_e != "Pilih...":
+                        id_e = pil_e.split(" - ")[0]
+                        c.execute("SELECT nama, bobot FROM master_jabatan_amil WHERE id=?", (id_e,))
+                        r_e = c.fetchone()
+                        if r_e:
+                            with st.form("f_e_jami"):
+                                e_nm = st.text_input("Jabatan:", value=r_e[0])
+                                e_bb = st.number_input("Bobot:", value=float(r_e[1]))
+                                if st.form_submit_button("Simpan"):
+                                    c.execute("UPDATE master_jabatan_amil SET nama=?, bobot=? WHERE id=?", (e_nm, e_bb, id_e)); conn.commit(); st.rerun()
     conn.close()
 
 elif pilihan_menu == "🕌 Data Majlis Ta'lim":
@@ -812,12 +1054,29 @@ elif pilihan_menu == "🕌 Data Majlis Ta'lim":
     df_mj = pd.read_sql_query(f"SELECT id as ID, nama_majlis as Majlis, pimpinan as Pimpinan FROM majlis_talim WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
     if not df_mj.empty:
         st.dataframe(df_mj, width='stretch', hide_index=True)
-        with st.expander("🗑️ Hapus Data Majlis"):
-            id_h = st.number_input("ID Hapus:", min_value=0, key="id_hapus_majlis")
-            if st.button("Hapus Data", key="btn_hapus_majlis"): 
-                c.execute("DELETE FROM majlis_talim WHERE id=?", (id_h,))
-                conn.commit()
-                st.rerun()
+        col_del, col_edit = st.columns(2)
+        with col_del:
+            with st.expander("🗑️ Hapus Data Majlis"):
+                id_h = st.number_input("ID Hapus:", min_value=0, key="id_hapus_majlis")
+                if st.button("Hapus Data", key="btn_hapus_majlis"): 
+                    c.execute("DELETE FROM majlis_talim WHERE id=?", (id_h,))
+                    conn.commit()
+                    st.rerun()
+        with col_edit:
+            with st.expander("✏️ Ubah Data Majlis"):
+                pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Majlis']}" for _, r in df_mj.iterrows()], key="e_majlis")
+                if pil_edit != "Pilih...":
+                    id_e = pil_edit.split(" - ")[0]
+                    c.execute("SELECT nama_majlis, pimpinan FROM majlis_talim WHERE id=?", (id_e,))
+                    r_e = c.fetchone()
+                    if r_e:
+                        with st.form("f_e_majlis"):
+                            e_mj = st.text_input("Majlis:", value=r_e[0])
+                            e_pm = st.text_input("Pimpinan:", value=r_e[1])
+                            if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                c.execute("UPDATE majlis_talim SET nama_majlis=?, pimpinan=? WHERE id=?", (e_mj, e_pm, id_e))
+                                conn.commit()
+                                st.rerun()
     conn.close()
 
 elif pilihan_menu == "📁 Arsip Data Lama":
@@ -828,21 +1087,32 @@ elif pilihan_menu == "⚙️ Pengaturan":
     st.title("⚙️ Pengaturan Profil Desa")
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    c.execute("SELECT * FROM pengaturan WHERE id=1")
+    
+    # [PERBAIKAN BUG] Agar pengaturan terpisah sesuai akun desa yang login
+    c.execute("SELECT nama_desa, kepala_desa, ketua_upz, tarif_uang, nominal_kupon FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
     data = c.fetchone()
-    if data:
-        with st.form("form_pengaturan_desa"):
-            c1, c2 = st.columns(2)
-            with c1:
-                in_desa = st.text_input("Nama Desa:", value=data[1] or "")
-                in_kades = st.text_input("Kepala Desa:", value=data[2] or "")
-            with c2:
-                in_ketua = st.text_input("Ketua UPZ:", value=data[5] or "")
-                in_tarif = st.number_input("Tarif Zakat Uang (Rp):", value=float(data[9] or 0))
-            if st.form_submit_button("💾 Simpan Pengaturan", width='stretch'):
-                c.execute('''UPDATE pengaturan SET nama_desa=?, kepala_desa=?, ketua_upz=?, tarif_uang=? WHERE id=1''', (in_desa, in_kades, in_ketua, float(in_tarif)))
-                conn.commit()
-                st.rerun()
+    if not data:
+        c.execute("INSERT INTO pengaturan (nama_desa) VALUES (?)", (st.session_state["nama_desa"],))
+        conn.commit()
+        c.execute("SELECT nama_desa, kepala_desa, ketua_upz, tarif_uang, nominal_kupon FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
+        data = c.fetchone()
+
+    with st.form("form_pengaturan_desa"):
+        c1, c2 = st.columns(2)
+        with c1:
+            in_desa = st.text_input("Nama Desa:", value=data[0] or "", disabled=True)
+            in_kades = st.text_input("Kepala Desa:", value=data[1] or "")
+        with c2:
+            in_ketua = st.text_input("Ketua UPZ:", value=data[2] or "")
+            in_tarif = st.number_input("Tarif Zakat Uang (Rp):", value=float(data[3] or 0))
+            
+        # Fitur Input Harga Kupon Infaq kembali muncul!
+        in_kupon = st.number_input("Harga Kupon Infaq Guru Ngaji per Lembar (Rp):", value=float(data[4] or 2000.0))
+        
+        if st.form_submit_button("💾 Simpan Pengaturan", width='stretch'):
+            c.execute('''UPDATE pengaturan SET kepala_desa=?, ketua_upz=?, tarif_uang=?, nominal_kupon=? WHERE nama_desa=?''', (in_kades, in_ketua, float(in_tarif), float(in_kupon), st.session_state["nama_desa"]))
+            conn.commit()
+            st.rerun()
     conn.close()
 
 elif pilihan_menu == "🖨️ Cetak Laporan PDF":
