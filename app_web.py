@@ -640,12 +640,14 @@ elif pilihan_menu == "⚙️ Pengaturan":
     conn.close()
 
 # ==========================================
-# KELOLA PENGGUNA (KHUSUS ADMIN)
+# KELOLA PENGGUNA (KHUSUS ADMIN / KECAMATAN)
 # ==========================================
 elif pilihan_menu == "👥 Kelola Pengguna":
     st.title("👥 Kelola Akun Pengguna (Multi-Desa)")
-    if st.session_state["role"] != "kecamatan" and st.session_state["role"] != "admin":
-        st.error("Hanya Admin Pusat yang bisa mengakses halaman ini!")
+    
+    # Memastikan hanya admin/kecamatan yang bisa buka
+    if st.session_state["role"] not in ["admin", "kecamatan"]:
+        st.error("Hanya Admin Pusat / Kecamatan yang bisa mengakses halaman ini!")
         st.stop()
 
     conn = sqlite3.connect(DB_NAME)
@@ -659,15 +661,20 @@ elif pilihan_menu == "👥 Kelola Pengguna":
             u_name = st.text_input("Username Login:")
         with col2:
             u_pass = st.text_input("Password Login:")
-            u_role = st.selectbox("Hak Akses:", ["user", "admin"])
+            u_role = st.selectbox("Hak Akses:", ["desa", "kecamatan", "user", "admin"])
 
-        if st.form_submit_button("💾 Daftarkan Desa", use_container_width=True):
+        if st.form_submit_button("💾 Daftarkan Akun", use_container_width=True):
             if u_name and u_pass and u_desa:
                 try:
                     c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES (?,?,?,?)", (u_name, u_pass, u_role, u_desa))
-                    c.execute("INSERT INTO pengaturan (nama_desa) VALUES (?)", (u_desa,))
+                    
+                    # Cek apakah profil desa ini sudah ada di tabel pengaturan
+                    c.execute("SELECT id FROM pengaturan WHERE nama_desa=?", (u_desa,))
+                    if not c.fetchone():
+                        c.execute("INSERT INTO pengaturan (nama_desa) VALUES (?)", (u_desa,))
+                        
                     conn.commit()
-                    st.success(f"Akun untuk UPZ Desa {u_desa} berhasil dibuat!")
+                    st.success(f"Akun untuk {u_desa} berhasil dibuat!")
                     st.rerun()
                 except Exception as e:
                     st.error(f"Gagal! Username mungkin sudah terpakai. Detail: {e}")
@@ -675,8 +682,72 @@ elif pilihan_menu == "👥 Kelola Pengguna":
                 st.error("Data wajib diisi lengkap!")
 
     st.markdown("---")
-    df_users = pd.read_sql_query("SELECT id as ID, username as Username, role as Hak_Akses, nama_desa as 'Nama Desa' FROM users", conn)
-    st.dataframe(df_users, use_container_width=True, hide_index=True)
+    st.subheader("📋 Daftar Akun Terdaftar")
+    
+    # Menampilkan tabel data pengguna (Password ditampilkan agar admin bisa melihat jika ada yang lupa)
+    df_users = pd.read_sql_query("SELECT id as ID, username as Username, password as Password, role as 'Hak Akses', nama_desa as 'Nama Desa' FROM users", conn)
+    
+    if not df_users.empty:
+        st.dataframe(df_users, use_container_width=True, hide_index=True)
+        
+        col_del, col_edit = st.columns(2)
+        
+        # ----------------------------------------
+        # 1. FITUR HAPUS AKUN
+        # ----------------------------------------
+        with col_del:
+            with st.expander("🗑️ Hapus Akun Pengguna"):
+                id_hapus = st.number_input("Masukkan ID Akun yang ingin dihapus:", min_value=0, step=1, key="del_user")
+                if st.button("Hapus Akun", use_container_width=True):
+                    # Pengaman agar tidak menghapus akun yang sedang dipakai sendiri
+                    c.execute("SELECT username FROM users WHERE id=?", (id_hapus,))
+                    usr = c.fetchone()
+                    
+                    if usr and usr[0] == "adminkec":
+                        st.error("Gagal! Kamu tidak boleh menghapus akun Admin Utama!")
+                    else:
+                        c.execute("DELETE FROM users WHERE id=?", (id_hapus,))
+                        conn.commit()
+                        st.success(f"Data akun dengan ID {id_hapus} berhasil dihapus!")
+                        st.rerun()
+
+        # ----------------------------------------
+        # 2. FITUR EDIT AKUN
+        # ----------------------------------------
+        with col_edit:
+            with st.expander("✏️ Ubah Data Akun (Edit)"):
+                # Membuat daftar pilihan format: "ID - Username (Nama Desa)"
+                daftar_pil_user = [f"{row['ID']} - {row['Username']} ({row['Nama Desa']})" for _, row in df_users.iterrows()]
+                pil_edit_user = st.selectbox("Pilih Akun yang akan diedit:", ["Pilih Akun..."] + daftar_pil_user, key="sel_edit_user")
+                
+                if pil_edit_user != "Pilih Akun...":
+                    id_edit_user = pil_edit_user.split(" - ")[0]
+                    c.execute("SELECT username, password, role, nama_desa FROM users WHERE id=?", (id_edit_user,))
+                    r_user = c.fetchone()
+                    
+                    if r_user:
+                        with st.form("form_edit_user"):
+                            st.caption(f"Mengedit ID: {id_edit_user}")
+                            
+                            e_name = st.text_input("Username Baru:", value=r_user[0])
+                            e_pass = st.text_input("Password Baru:", value=r_user[1])
+                            
+                            opsi_role = ["desa", "kecamatan", "user", "admin"]
+                            idx_role = opsi_role.index(r_user[2]) if r_user[2] in opsi_role else 0
+                            e_role = st.selectbox("Hak Akses:", opsi_role, index=idx_role)
+                            
+                            e_desa = st.text_input("Nama Desa (Kunci Kamar):", value=r_user[3])
+                            
+                            if st.form_submit_button("💾 Simpan Perubahan", use_container_width=True):
+                                # Update data di tabel users
+                                c.execute("UPDATE users SET username=?, password=?, role=?, nama_desa=? WHERE id=?", 
+                                          (e_name, e_pass, e_role, e_desa, id_edit_user))
+                                conn.commit()
+                                st.success("Data Akun berhasil diperbarui!")
+                                st.rerun()
+    else:
+        st.info("Belum ada data pengguna yang terdaftar.")
+
     conn.close()
 
 elif pilihan_menu == "🖨️ Cetak Laporan PDF":
