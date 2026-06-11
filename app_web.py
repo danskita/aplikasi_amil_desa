@@ -1,90 +1,157 @@
 import streamlit as st
 import sqlite3
 import pandas as pd
+import datetime
+import os
 
 # ==========================================
-# 1. KONFIGURASI HALAMAN
+# 1. KONFIGURASI HALAMAN (Wajib Paling Atas)
 # ==========================================
 st.set_page_config(
-    page_title="Laporan Terpadu Amil Desa", 
+    page_title="Laporan Terpadu Amil", 
     page_icon="🕌", 
     layout="wide"
 )
 
-# Ganti "database.db" dengan nama file database aslimu (lihat di config.py)
-DB_NAME = "database_upz_desa.db" 
+DB_NAME = "database_upz_desa.db"
 
 # ==========================================
-# 2. MENU NAVIGASI (SIDEBAR)
+# 2. AUTO-SETUP DATABASE & MULTI-USER
 # ==========================================
-st.sidebar.title("🕌 Amil Desa Web")
-st.sidebar.caption("Sistem Laporan Terpadu")
+def setup_multiuser():
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    # Buat tabel pengguna jika belum ada
+    c.execute('''CREATE TABLE IF NOT EXISTS users (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT UNIQUE,
+                    password TEXT,
+                    role TEXT,
+                    nama_desa TEXT
+                )''')
+    # Buat akun Admin utama jika database pengguna masih kosong
+    c.execute("SELECT COUNT(*) FROM users")
+    if c.fetchone()[0] == 0:
+        c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES ('admin', 'admin123', 'admin', 'Pusat')")
+        try: c.execute("INSERT INTO pengaturan (nama_desa) VALUES ('Pusat')")
+        except: pass
 
-# Membuat daftar menu seperti di CustomTkinter
-pilihan_menu = st.sidebar.radio(
-    "Pilih Halaman:",
-    [
-        "📊 Dashboard Utama",
-        "📥 Penerimaan Zakat",
-        "📤 Distribusi UPZ",
-        "🐄 Data Qurban",
-        "🕌 Data Majlis Ta'lim",  # <--- Menu Baru
-        "📂 Kelola Data Master",
-        "🖨️ Cetak Laporan PDF",
-        "📁 Arsip Data Lama",     # <--- Menu Baru
-        "⚙️ Pengaturan"
-    ]
-)
+    # Tambahkan kolom nama_desa di semua tabel master jika belum ada (opsional/patch)
+    tabel_list = ["pengaturan", "qurban", "master_dkm", "guru_ngaji", "majlis_talim", "master_kategori_sab", "master_jabatan_amil"]
+    for tb in tabel_list:
+        try: c.execute(f"ALTER TABLE {tb} ADD COLUMN nama_desa TEXT")
+        except: pass
+        
+    conn.commit()
+    conn.close()
 
+setup_multiuser()
+
+# ==========================================
+# 3. SISTEM LOGIN & SESSION (PINTU MASUK)
+# ==========================================
+if "logged_in" not in st.session_state:
+    st.session_state["logged_in"] = False
+    st.session_state["role"] = ""
+    st.session_state["nama_desa"] = ""
+
+def form_login():
+    st.title("🕌 Sistem Laporan Terpadu Amil")
+    st.markdown("Silakan masuk menggunakan akun Kecamatan atau Desa.")
+    
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        with st.container(border=True):
+            username = st.text_input("Username")
+            password = st.text_input("Password", type="password")
+            
+            if st.button("Masuk / Login", use_container_width=True, type="primary"):
+                conn = sqlite3.connect(DB_NAME)
+                c = conn.cursor()
+                c.execute("SELECT role, nama_desa FROM users WHERE username=? AND password=?", (username, password))
+                user = c.fetchone()
+                conn.close()
+                
+                if user:
+                    st.session_state["logged_in"] = True
+                    st.session_state["role"] = user[0]
+                    st.session_state["nama_desa"] = user[1]
+                    st.rerun()
+                else:
+                    st.error("Username atau Password salah!")
+
+def logout():
+    st.session_state["logged_in"] = False
+    st.session_state["role"] = ""
+    st.session_state["nama_desa"] = ""
+    st.rerun()
+
+# Hentikan eksekusi web jika belum login
+if not st.session_state["logged_in"]:
+    form_login()
+    st.stop()
+
+# ==========================================
+# 4. MENU NAVIGASI (SIDEBAR)
+# ==========================================
+st.sidebar.title(f"🕌 Amil {st.session_state['nama_desa']}")
+st.sidebar.caption(f"Hak Akses: {st.session_state['role'].title()}")
+
+if st.sidebar.button("🚪 Keluar (Logout)", use_container_width=True):
+    logout()
+
+st.sidebar.markdown("---")
+
+menu_halaman = [
+    "📊 Dashboard Utama",
+    "📥 Penerimaan Zakat",
+    "📤 Distribusi UPZ",
+    "🐄 Data Qurban",
+    "🕌 Data Majlis Ta'lim",
+    "📂 Kelola Data Master",
+    "🖨️ Cetak Laporan PDF",
+    "📁 Arsip Data Lama",
+    "⚙️ Pengaturan"
+]
+
+# Tambahkan menu ekstra jika yang login adalah Admin
+if st.session_state["role"] == "admin":
+    menu_halaman.append("👥 Kelola Pengguna")
+
+pilihan_menu = st.sidebar.radio("Pilih Halaman:", menu_halaman)
 st.sidebar.markdown("---")
 st.sidebar.info("💡 Buka di HP untuk kemudahan input data saat di lapangan.")
 
 # ==========================================
-# 3. LOGIKA HALAMAN DASHBOARD
+# LOGIKA HALAMAN DASHBOARD
 # ==========================================
 if pilihan_menu == "📊 Dashboard Utama":
-    
-    # Sambungkan ke Database
     try:
         conn = sqlite3.connect(DB_NAME)
         c = conn.cursor()
         
-        # Ambil Nama Desa
-        c.execute("SELECT nama_desa FROM pengaturan WHERE id=1")
+        c.execute("SELECT nama_desa FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
         res = c.fetchone()
-        desa = res[0] if res and res[0] else "Desa"
+        desa = res[0] if res and res[0] else st.session_state["nama_desa"]
         
-        # Ambil Data Penghimpunan
-        c.execute("SELECT SUM(total_beras), SUM(total_uang), SUM(infaq), SUM(jiwa_beras), SUM(jiwa_uang) FROM setoran_dkm")
+        c.execute("SELECT SUM(total_beras), SUM(total_uang), SUM(infaq), SUM(jiwa_beras), SUM(jiwa_uang) FROM setoran_dkm WHERE nama_desa=?", (st.session_state["nama_desa"],))
         himpun = c.fetchone()
-        t_beras = himpun[0] or 0
-        t_uang = himpun[1] or 0
-        t_infaq = himpun[2] or 0
-        j_beras = himpun[3] or 0
-        j_uang = himpun[4] or 0
+        t_beras = himpun[0] or 0; t_uang = himpun[1] or 0; t_infaq = himpun[2] or 0
+        j_beras = himpun[3] or 0; j_uang = himpun[4] or 0
         
-        # Tampilan Judul
         st.title(f"📊 DASHBOARD AMIL DESA {desa.upper()}")
         st.markdown("Ringkasan Data Penghimpunan dan Penyaluran Zakat")
         
-        # --- KARTU RINGKASAN (METRICS) ---
         col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Muzakki", f"{j_beras + j_uang} Jiwa")
-        with col2:
-            st.metric("Total Beras", f"{t_beras:,.2f} Kg")
-        with col3:
-            st.metric("Total Uang Zakat", f"Rp {int(t_uang):,}")
-        with col4:
-            st.metric("Total Infaq", f"Rp {int(t_infaq):,}")
+        col1.metric("Total Muzakki", f"{j_beras + j_uang} Jiwa")
+        col2.metric("Total Beras", f"{t_beras:,.2f} Kg")
+        col3.metric("Total Uang Zakat", f"Rp {int(t_uang):,}")
+        col4.metric("Total Infaq", f"Rp {int(t_infaq):,}")
             
         st.markdown("---")
-        
-        # --- TABEL DAFTAR SETORAN DKM ---
         st.subheader("Daftar Setoran per UPZ DKM")
         
-        # Streamlit sangat cocok pakai Pandas untuk tabel (Dataframe)
-        query_tabel = """
+        query_tabel = f"""
         SELECT 
             nama_dkm AS 'Nama DKM / Wakil', 
             (jiwa_beras + jiwa_uang) AS 'Total Jiwa', 
@@ -92,35 +159,28 @@ if pilihan_menu == "📊 Dashboard Utama":
             total_uang AS 'Total Uang Zakat (Rp)', 
             infaq AS 'Total Infaq (Rp)' 
         FROM setoran_dkm 
+        WHERE nama_desa = '{st.session_state["nama_desa"]}'
         ORDER BY nama_dkm ASC
         """
         df_dkm = pd.read_sql_query(query_tabel, conn)
-        
-        # Menampilkan tabel interaktif
         st.dataframe(df_dkm, use_container_width=True, hide_index=True)
-        
         conn.close()
         
     except Exception as e:
         st.error(f"Terjadi kesalahan saat memuat database: {e}")
-        st.info("Pastikan file database ada di folder yang sama dengan app_web.py")
 
 # ==========================================
-# 4. KERANGKA HALAMAN LAINNYA
+# PENERIMAAN ZAKAT
 # ==========================================
 elif pilihan_menu == "📥 Penerimaan Zakat":
     st.title("📥 Penerimaan Zakat & Infaq DKM")
-    st.markdown("Kelola data setoran zakat fitrah dan infaq dari setiap UPZ DKM di sini.")
-
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # 1. Ambil daftar DKM untuk dropdown
-    c.execute("SELECT nama_dkm FROM master_dkm ORDER BY nama_dkm ASC")
+    c.execute("SELECT nama_dkm FROM master_dkm WHERE nama_desa=? ORDER BY nama_dkm ASC", (st.session_state["nama_desa"],))
     daftar_dkm = [row[0] for row in c.fetchall()]
 
-    # 2. Ambil tarif & harga dari tabel pengaturan untuk kalkulasi
-    c.execute("SELECT tarif_beras, tarif_uang, nominal_kupon FROM pengaturan WHERE id=1")
+    c.execute("SELECT tarif_beras, tarif_uang, nominal_kupon FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
     res_tarif = c.fetchone()
     t_b = res_tarif[0] if res_tarif and res_tarif[0] else 0
     t_u = res_tarif[1] if res_tarif and res_tarif[1] else 0
@@ -129,64 +189,40 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
     st.markdown("---")
     st.subheader("Form Input Setoran Baru")
     
-    # ==========================================
-    # LOGIKA SINKRONISASI DATA MASTER (DILUAR FORM)
-    # ==========================================
-    # Tempatkan pilihan DKM di luar st.form agar bisa bereaksi dinamis
     if daftar_dkm:
         selected_dkm = st.selectbox("Pilih UPZ DKM Induk:", ["Pilih DKM..."] + daftar_dkm)
     else:
         selected_dkm = st.text_input("Nama UPZ DKM Induk (Data Master Kosong):")
 
-    # Variabel penampung untuk auto-fill
-    alamat_def = ""
-    wakil_list = []
-    
-    # Jika DKM dipilih, ambil datanya dari master_dkm
+    alamat_def = ""; wakil_list = []
     if selected_dkm and selected_dkm != "Pilih DKM...":
-        c.execute("SELECT alamat_dkm, perwakilan FROM master_dkm WHERE nama_dkm=?", (selected_dkm,))
+        c.execute("SELECT alamat_dkm, perwakilan FROM master_dkm WHERE nama_dkm=? AND nama_desa=?", (selected_dkm, st.session_state["nama_desa"]))
         res_master = c.fetchone()
         if res_master:
             alamat_def = res_master[0] if res_master[0] else ""
-            # Pecah teks perwakilan menjadi list berdasarkan koma
-            if res_master[1]:
-                wakil_list = [x.strip() for x in res_master[1].split(",") if x.strip()]
+            if res_master[1]: wakil_list = [x.strip() for x in res_master[1].split(",") if x.strip()]
 
-    # ==========================================
-    # FORM INPUT PENERIMAAN
-    # ==========================================
-    # Hanya jalankan form jika DKM sudah dipilih
     if selected_dkm and selected_dkm != "Pilih DKM...":
         with st.form("form_penerimaan"):
             col1, col2 = st.columns(2)
             with col1:
-                # Alamat otomatis terisi dari Data Master
                 alamat_dkm = st.text_input("Alamat Pusat DKM:", value=alamat_def)
                 alamat_wakil = st.text_input("Cakupan Wilayah / Alamat Wakil:")
-                
             with col2:
-                # Jika ada wakil di Data Master, gunakan dropdown. Jika tidak, input manual.
                 if wakil_list:
                     wakil_upz = st.selectbox("Wakil UPZ / Mushola (Otomatis dari Master):", ["Pusat (Tidak ada wakil)"] + wakil_list)
-                    if wakil_upz == "Pusat (Tidak ada wakil)":
-                        wakil_upz = ""
+                    if wakil_upz == "Pusat (Tidak ada wakil)": wakil_upz = ""
                 else:
                     wakil_upz = st.text_input("Wakil UPZ (Ketik manual karena Master kosong):")
 
             st.markdown("---")
-            
-            # Pilihan Mode Input
-            mode_input = st.radio("Pilih Metode Input Data Zakat:", 
-                                  ["Berdasarkan Data Jiwa", "Berdasarkan Setoran Fisik"], 
-                                  horizontal=True)
-            
+            mode_input = st.radio("Pilih Metode Input Data Zakat:", ["Berdasarkan Data Jiwa", "Berdasarkan Setoran Fisik"], horizontal=True)
             col_zakat, col_infaq = st.columns(2)
             
             with col_zakat:
                 st.write("📝 **Rincian Zakat**")
                 j_b = st.number_input("Jumlah Muzakki Beras (Jiwa):", min_value=0, value=0)
                 j_u = st.number_input("Jumlah Muzakki Uang (Jiwa):", min_value=0, value=0)
-                
                 st.caption("Atau isi bagian bawah ini jika memilih mode Fisik:")
                 f_b = st.number_input("Fisik Beras Disetor (Kg):", min_value=0.0, value=0.0, step=0.5)
                 f_u = st.number_input("Fisik Uang Disetor (Rp):", min_value=0, value=0, step=1000)
@@ -196,29 +232,21 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
                 k_diterima = st.number_input("Kupon Awal Diterima (Lembar):", min_value=0, value=0)
                 k_terjual = st.number_input("Kupon Laku / Terjual (Lembar):", min_value=0, value=0)
                 k_kembali = st.number_input("Kupon Sisa / Kembali (Lembar):", min_value=0, value=0)
-                infaq_uang = st.number_input("Nominal Uang Infaq (Rp):", min_value=0, value=0, help="Kosongkan jika ingin dihitung otomatis dari Kupon Terjual")
+                infaq_uang = st.number_input("Nominal Uang Infaq (Rp):", min_value=0, value=0)
 
-            # Tombol Simpan
             submit_penerimaan = st.form_submit_button("💾 Simpan Data Setoran", use_container_width=True)
 
             if submit_penerimaan:
-                # LOGIKA KALKULASI OTOMATIS
                 tipe_input = "jiwa" if mode_input == "Berdasarkan Data Jiwa" else "fisik"
-                tb = 0.0; tu = 0.0; fb = 0.0; fu = 0.0
-                jiwa_b = j_b; jiwa_u = j_u
+                tb = 0.0; tu = 0.0; fb = 0.0; fu = 0.0; jiwa_b = j_b; jiwa_u = j_u
 
                 if tipe_input == "jiwa":
-                    tb = jiwa_b * t_b
-                    tu = jiwa_u * t_u
-                    fb = tb * 0.175
-                    fu = tu * 0.175
+                    tb = jiwa_b * t_b; tu = jiwa_u * t_u
+                    fb = tb * 0.175; fu = tu * 0.175
                 else:
-                    fb = f_b
-                    fu = f_u
-                    tb = fb / 0.175 if fb > 0 else 0
-                    tu = fu / 0.175 if fu > 0 else 0
-                    jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0
-                    jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
+                    fb = f_b; fu = f_u
+                    tb = fb / 0.175 if fb > 0 else 0; tu = fu / 0.175 if fu > 0 else 0
+                    jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0; jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
 
                 infaq_rp = float(infaq_uang) if infaq_uang > 0 else float(k_terjual * nom_kupon)
 
@@ -226,709 +254,428 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
                     c.execute('''INSERT INTO setoran_dkm 
                                  (nama_dkm, alamat_dkm, perwakilan, alamat_perwakilan, tipe_input, 
                                  jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, total_beras, 
-                                 total_uang, infaq, kupon_diterima, kupon_terjual, kupon_kembali)
-                                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
+                                 total_uang, infaq, kupon_diterima, kupon_terjual, kupon_kembali, nama_desa)
+                                 VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''',
                               (selected_dkm, alamat_dkm, wakil_upz, alamat_wakil, tipe_input, 
-                               jiwa_b, jiwa_u, fb, fu, tb, tu, infaq_rp, k_diterima, k_terjual, k_kembali))
+                               jiwa_b, jiwa_u, fb, fu, tb, tu, infaq_rp, k_diterima, k_terjual, k_kembali, st.session_state["nama_desa"]))
                     conn.commit()
                     st.success(f"Berhasil! Data setoran dari **{selected_dkm}** sudah disimpan.")
                     st.rerun() 
                 except Exception as e:
                     st.error(f"Gagal menyimpan data: {e}")
 
-    # ==========================================
-    # TABEL DAFTAR DATA YANG SUDAH MASUK
-    # ==========================================
     st.markdown("---")
     st.subheader("📋 Daftar Penerimaan Terkini")
-    
-    import pandas as pd
-    query = """
-    SELECT 
-        id as 'ID', 
-        nama_dkm as 'Nama DKM', 
-        perwakilan as 'Wakil UPZ', 
-        (jiwa_beras + jiwa_uang) as 'Total Jiwa', 
-        total_beras as 'Total Beras (Kg)', 
-        total_uang as 'Total Uang Zakat (Rp)', 
-        infaq as 'Infaq (Rp)' 
-    FROM setoran_dkm 
-    ORDER BY id DESC
-    """
+    query = f"SELECT id as 'ID', nama_dkm as 'Nama DKM', perwakilan as 'Wakil UPZ', (jiwa_beras + jiwa_uang) as 'Total Jiwa', total_beras as 'Total Beras (Kg)', total_uang as 'Total Uang Zakat (Rp)', infaq as 'Infaq (Rp)' FROM setoran_dkm WHERE nama_desa = '{st.session_state["nama_desa"]}' ORDER BY id DESC"
     df_setoran = pd.read_sql_query(query, conn)
     
     if not df_setoran.empty:
-        # Menampilkan tabel
         st.dataframe(df_setoran, use_container_width=True, hide_index=True)
-        
-        # Membuat 2 kolom berdampingan untuk fitur Hapus dan Edit
         col_del, col_edit = st.columns(2)
         
-        # ----------------------------------------
-        # 1. FITUR HAPUS DATA
-        # ----------------------------------------
         with col_del:
             with st.expander("🗑️ Hapus Data Setoran"):
                 id_hapus = st.number_input("Masukkan ID baris yang ingin dihapus:", min_value=0, step=1, key="del_pen")
                 if st.button("Hapus Data", use_container_width=True):
-                    c.execute("DELETE FROM setoran_dkm WHERE id=?", (id_hapus,))
-                    conn.commit()
-                    st.success(f"Data ID {id_hapus} berhasil dihapus!")
-                    st.rerun()
+                    c.execute("DELETE FROM setoran_dkm WHERE id=? AND nama_desa=?", (id_hapus, st.session_state["nama_desa"]))
+                    conn.commit(); st.success("Terhapus!"); st.rerun()
                     
-        # ----------------------------------------
-        # 2. FITUR UBAH (EDIT) DATA - Pengganti Klik Kanan Desktop
-        # ----------------------------------------
         with col_edit:
             with st.expander("✏️ Ubah Data (Edit)"):
-                
-                # MEMBUAT DAFTAR PILIHAN YANG RAMAH BACA (Contoh: "1 - AL-IKHLAS")
-                daftar_pilihan = []
-                for index, row in df_setoran.iterrows():
-                    id_baris = str(row['ID'])
-                    nama_dkm = str(row['Nama DKM'])
-                    wakil = str(row['Wakil UPZ'])
-                    
-                    # Tambahkan keterangan nama wakil/mushola jika ada
-                    if wakil and wakil != "None" and wakil.strip() != "":
-                        label = f"{id_baris} - {nama_dkm} ({wakil})"
-                    else:
-                        label = f"{id_baris} - {nama_dkm}"
-                    
-                    daftar_pilihan.append(label)
-
-                # Menampilkan dropdown dengan format yang mudah dibaca
+                daftar_pilihan = [f"{str(r['ID'])} - {str(r['Nama DKM'])} ({str(r['Wakil UPZ'])})" if r['Wakil UPZ'] else f"{str(r['ID'])} - {str(r['Nama DKM'])}" for i, r in df_setoran.iterrows()]
                 pilihan_edit = st.selectbox("Pilih Data yang akan diedit:", ["Pilih Data..."] + daftar_pilihan)
                 
-                # Jika pengguna sudah memilih data
                 if pilihan_edit != "Pilih Data...":
-                    
-                    # Mengambil angka ID saja dari teks (memotong teks sebelum spasi dan tanda "-")
                     id_edit = pilihan_edit.split(" - ")[0]
-                    
-                    # Ambil data lama dari database berdasarkan ID
-                    c.execute("SELECT nama_dkm, jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, infaq, tipe_input FROM setoran_dkm WHERE id=?", (id_edit,))
+                    c.execute("SELECT nama_dkm, jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, infaq, tipe_input FROM setoran_dkm WHERE id=? AND nama_desa=?", (id_edit, st.session_state["nama_desa"]))
                     row_edit = c.fetchone()
-                    
                     if row_edit:
-                        st.info(f"Mengedit Setoran: **{row_edit[0]}**")
-                        
-                        # Munculkan Form Edit yang terisi otomatis data lama
                         with st.form("form_edit_penerimaan"):
-                            st.caption(f"Metode Input Asli: {row_edit[6].upper()}")
                             e_jb = st.number_input("Muzakki Beras (Jiwa):", value=int(row_edit[1] or 0))
                             e_ju = st.number_input("Muzakki Uang (Jiwa):", value=int(row_edit[2] or 0))
                             e_fb = st.number_input("Fisik Beras (Kg):", value=float(row_edit[3] or 0.0), step=0.5)
                             e_fu = st.number_input("Fisik Uang (Rp):", value=int(row_edit[4] or 0), step=1000)
                             e_inf = st.number_input("Total Infaq (Rp):", value=int(row_edit[5] or 0), step=1000)
                             
-                            # Tombol Simpan Perubahan
                             if st.form_submit_button("💾 Simpan Perubahan", use_container_width=True):
-                                
-                                # Kalkulasi ulang otomatis (Sama seperti logika input baru)
                                 tipe_input = row_edit[6]
                                 tb_baru = 0.0; tu_baru = 0.0; fb_baru = 0.0; fu_baru = 0.0
                                 jiwa_b = e_jb; jiwa_u = e_ju
                                 
                                 if tipe_input == "jiwa":
-                                    tb_baru = jiwa_b * t_b
-                                    tu_baru = jiwa_u * t_u
-                                    fb_baru = tb_baru * 0.175
-                                    fu_baru = tu_baru * 0.175
+                                    tb_baru = jiwa_b * t_b; tu_baru = jiwa_u * t_u
+                                    fb_baru = tb_baru * 0.175; fu_baru = tu_baru * 0.175
                                 else:
-                                    fb_baru = e_fb
-                                    fu_baru = e_fu
-                                    tb_baru = fb_baru / 0.175 if fb_baru > 0 else 0
-                                    tu_baru = fu_baru / 0.175 if fu_baru > 0 else 0
+                                    fb_baru = e_fb; fu_baru = e_fu
+                                    tb_baru = fb_baru / 0.175 if fb_baru > 0 else 0; tu_baru = fu_baru / 0.175 if fu_baru > 0 else 0
+                                    jiwa_b = int(round(tb_baru / t_b)) if t_b > 0 else 0; jiwa_u = int(round(tu_baru / t_u)) if t_u > 0 else 0
                                     
-                                    # ---> LOGIKA OTOMATIS: Hitung mundur Jiwa dari jumlah Fisik
-                                    jiwa_b = int(round(tb_baru / t_b)) if t_b > 0 else 0
-                                    jiwa_u = int(round(tu_baru / t_u)) if t_u > 0 else 0
-                                    
-                                # Perbarui data di Database
-                                c.execute('''UPDATE setoran_dkm 
-                                             SET jiwa_beras=?, jiwa_uang=?, fisik_beras=?, fisik_uang=?, 
-                                                 total_beras=?, total_uang=?, infaq=? 
-                                             WHERE id=?''', 
-                                          (jiwa_b, jiwa_u, fb_baru, fu_baru, tb_baru, tu_baru, e_inf, id_edit))
-                                conn.commit()
-                                st.success("Perubahan data berhasil disimpan dan dikalkulasi otomatis!")
-                                st.rerun()
-    else:
-        st.info("Belum ada data setoran yang masuk.")
-
+                                c.execute('''UPDATE setoran_dkm SET jiwa_beras=?, jiwa_uang=?, fisik_beras=?, fisik_uang=?, total_beras=?, total_uang=?, infaq=? WHERE id=?''', (jiwa_b, jiwa_u, fb_baru, fu_baru, tb_baru, tu_baru, e_inf, id_edit))
+                                conn.commit(); st.success("Tersimpan!"); st.rerun()
     conn.close()
 
+# ==========================================
+# DISTRIBUSI UPZ
+# ==========================================
 elif pilihan_menu == "📤 Distribusi UPZ":
     st.title("📤 Distribusi Alokasi UPZ Desa")
-    st.markdown("Kelola data penyaluran dana zakat untuk Asnaf Sabilillah dan Asnaf Amilin di sini.")
-
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # Membuat Tab untuk memisahkan kategori
     tab_sab, tab_amil = st.tabs(["📌 Asnaf Sabilillah (87.5%)", "📌 Asnaf Amilin (12.5%)"])
 
-    # ==========================================
-    # TAB 1: SABILILLAH
-    # ==========================================
     with tab_sab:
-        st.subheader("Form Penyaluran Sabilillah")
-        
-        # Ambil pilihan kategori program dari database
         try:
-            c.execute("SELECT nama FROM master_kategori_sab ORDER BY nama ASC")
+            c.execute("SELECT nama FROM master_kategori_sab WHERE nama_desa=? ORDER BY nama ASC", (st.session_state["nama_desa"],))
             daftar_sab = [row[0] for row in c.fetchall()]
-        except:
-            daftar_sab = []
+        except: daftar_sab = []
 
-        # Form Input Sabilillah
         with st.form("form_sab"):
             col1, col2 = st.columns(2)
             with col1:
-                # Jika data master ada, pakai dropdown. Jika kosong, pakai input teks.
-                if daftar_sab:
-                    prog_sab = st.selectbox("Kategori Program:", ["Pilih Program..."] + daftar_sab)
-                else:
-                    prog_sab = st.text_input("Kategori Program (Ketik manual):")
-                
+                prog_sab = st.selectbox("Kategori Program:", ["Pilih Program..."] + daftar_sab) if daftar_sab else st.text_input("Kategori Program:")
                 penerima_sab = st.text_input("Nama Penerima (Mustahik):")
-            
             with col2:
                 beras_sab = st.number_input("Disalurkan Beras (Kg):", min_value=0.0, value=0.0, step=0.5)
                 uang_sab = st.number_input("Disalurkan Uang (Rp):", min_value=0, value=0, step=1000)
             
-            submit_sab = st.form_submit_button("💾 Simpan Data Sabilillah", use_container_width=True)
-            
-            if submit_sab:
-                if prog_sab == "Pilih Program..." or not prog_sab:
-                    st.error("Gagal! Kategori Program wajib diisi/dipilih.")
-                else:
-                    c.execute("INSERT INTO sabilillah (program, penerima, beras, uang) VALUES (?,?,?,?)", 
-                              (prog_sab, penerima_sab, beras_sab, uang_sab))
-                    conn.commit()
-                    st.success(f"Berhasil! Penyaluran kepada {penerima_sab} telah dicatat.")
-                    st.rerun()
+            if st.form_submit_button("💾 Simpan Data Sabilillah"):
+                c.execute("INSERT INTO sabilillah (program, penerima, beras, uang, nama_desa) VALUES (?,?,?,?,?)", (prog_sab, penerima_sab, beras_sab, uang_sab, st.session_state["nama_desa"]))
+                conn.commit(); st.success("Tersimpan!"); st.rerun()
 
-        st.markdown("---")
-        st.write("📋 **Daftar Riwayat Penyaluran Sabilillah:**")
-        
-        df_sab = pd.read_sql_query("SELECT id as ID, program as 'Program', penerima as 'Nama Penerima', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM sabilillah", conn)
-        
+        df_sab = pd.read_sql_query(f"SELECT id as ID, program as 'Program', penerima as 'Nama Penerima', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM sabilillah WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         if not df_sab.empty:
             st.dataframe(df_sab, use_container_width=True, hide_index=True)
-            
-            col_del_sab, col_edit_sab = st.columns(2)
-            
-            # --- 1. FITUR HAPUS SABILILLAH ---
-            with col_del_sab:
-                with st.expander("🗑️ Hapus Data Sabilillah"):
-                    id_hapus_sab = st.number_input("Masukkan ID baris yang ingin dihapus:", min_value=0, step=1, key="del_sab")
-                    if st.button("Hapus Data Sabilillah", use_container_width=True):
-                        c.execute("DELETE FROM sabilillah WHERE id=?", (id_hapus_sab,))
-                        conn.commit()
-                        st.success(f"Data dengan ID {id_hapus_sab} berhasil dihapus!")
-                        st.rerun()
+            cd, ce = st.columns(2)
+            with cd:
+                with st.expander("🗑️ Hapus Sabilillah"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="dsab")
+                    if st.button("Hapus"): c.execute("DELETE FROM sabilillah WHERE id=?", (id_h,)); conn.commit(); st.rerun()
 
-            # --- 2. FITUR EDIT SABILILLAH ---
-            with col_edit_sab:
-                with st.expander("✏️ Ubah Data (Edit)"):
-                    # Membuat daftar pilihan: "ID - Nama Penerima (Program)"
-                    daftar_pil_sab = [f"{row['ID']} - {row['Nama Penerima']} ({row['Program']})" for _, row in df_sab.iterrows()]
-                    pil_edit_sab = st.selectbox("Pilih Data yang akan diedit:", ["Pilih Data..."] + daftar_pil_sab, key="sel_edit_sab")
-                    
-                    if pil_edit_sab != "Pilih Data...":
-                        id_edit_sab = pil_edit_sab.split(" - ")[0] # Ambil angka ID-nya saja
-                        c.execute("SELECT program, penerima, beras, uang FROM sabilillah WHERE id=?", (id_edit_sab,))
-                        r_sab = c.fetchone()
-                        
-                        if r_sab:
-                            with st.form("form_edit_sab"):
-                                st.caption(f"Mengedit ID: {id_edit_sab}")
-                                e_prog_sab = st.text_input("Kategori Program:", value=r_sab[0])
-                                e_pen_sab = st.text_input("Nama Penerima:", value=r_sab[1])
-                                e_b_sab = st.number_input("Beras (Kg):", value=float(r_sab[2] or 0.0), step=0.5)
-                                e_u_sab = st.number_input("Uang (Rp):", value=int(r_sab[3] or 0), step=1000)
-                                
-                                if st.form_submit_button("💾 Simpan Perubahan", use_container_width=True):
-                                    c.execute("UPDATE sabilillah SET program=?, penerima=?, beras=?, uang=? WHERE id=?", 
-                                              (e_prog_sab, e_pen_sab, e_b_sab, e_u_sab, id_edit_sab))
-                                    conn.commit()
-                                    st.success("Data Sabilillah berhasil diperbarui!")
-                                    st.rerun()
-        else:
-            st.info("Belum ada data penyaluran Sabilillah.")
-
-    # ==========================================
-    # TAB 2: AMILIN
-    # ==========================================
     with tab_amil:
-        st.subheader("Form Penyaluran Amilin (Hak Amil)")
-        
-        # Ambil pilihan jabatan dari database
         try:
-            c.execute("SELECT nama FROM master_jabatan_amil ORDER BY nama ASC")
+            c.execute("SELECT nama FROM master_jabatan_amil WHERE nama_desa=? ORDER BY nama ASC", (st.session_state["nama_desa"],))
             daftar_amil = [row[0] for row in c.fetchall()]
-        except:
-            daftar_amil = []
+        except: daftar_amil = []
 
-        # Form Input Amilin
         with st.form("form_amil"):
             col1, col2 = st.columns(2)
             with col1:
                 nama_amil = st.text_input("Nama Pengurus (Amil):")
-                
-                if daftar_amil:
-                    jabatan_amil = st.selectbox("Posisi Jabatan:", ["Pilih Jabatan..."] + daftar_amil)
-                else:
-                    jabatan_amil = st.text_input("Posisi Jabatan (Ketik manual):")
-            
+                jabatan_amil = st.selectbox("Posisi Jabatan:", ["Pilih Jabatan..."] + daftar_amil) if daftar_amil else st.text_input("Posisi Jabatan:")
             with col2:
-                # Menggunakan key unik agar tidak bentrok dengan form sabilillah
                 beras_amil = st.number_input("Disalurkan Beras (Kg):", min_value=0.0, value=0.0, step=0.5, key="b_amil")
                 uang_amil = st.number_input("Disalurkan Uang (Rp):", min_value=0, value=0, step=1000, key="u_amil")
             
-            submit_amil = st.form_submit_button("💾 Simpan Data Amilin", use_container_width=True)
-            
-            if submit_amil:
-                if jabatan_amil == "Pilih Jabatan..." or not jabatan_amil:
-                    st.error("Gagal! Posisi Jabatan wajib diisi/dipilih.")
-                else:
-                    c.execute("INSERT INTO amilin (nama, jabatan, beras, uang) VALUES (?,?,?,?)", 
-                              (nama_amil, jabatan_amil, beras_amil, uang_amil))
-                    conn.commit()
-                    st.success(f"Berhasil! Penyaluran kepada {nama_amil} telah dicatat.")
-                    st.rerun()
+            if st.form_submit_button("💾 Simpan Data Amilin"):
+                c.execute("INSERT INTO amilin (nama, jabatan, beras, uang, nama_desa) VALUES (?,?,?,?,?)", (nama_amil, jabatan_amil, beras_amil, uang_amil, st.session_state["nama_desa"]))
+                conn.commit(); st.success("Tersimpan!"); st.rerun()
 
-        st.markdown("---")
-        st.write("📋 **Daftar Riwayat Penyaluran Amilin:**")
-        
-        df_amil = pd.read_sql_query("SELECT id as ID, nama as 'Nama Pengurus', jabatan as 'Jabatan', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM amilin", conn)
-        
+        df_amil = pd.read_sql_query(f"SELECT id as ID, nama as 'Nama Pengurus', jabatan as 'Jabatan', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM amilin WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         if not df_amil.empty:
             st.dataframe(df_amil, use_container_width=True, hide_index=True)
-            
-            col_del_amil, col_edit_amil = st.columns(2)
-            
-            # --- 1. FITUR HAPUS AMILIN ---
-            with col_del_amil:
-                with st.expander("🗑️ Hapus Data Amilin"):
-                    id_hapus_amil = st.number_input("Masukkan ID baris yang ingin dihapus:", min_value=0, step=1, key="del_amil")
-                    if st.button("Hapus Data Amilin", use_container_width=True):
-                        c.execute("DELETE FROM amilin WHERE id=?", (id_hapus_amil,))
-                        conn.commit()
-                        st.success(f"Data dengan ID {id_hapus_amil} berhasil dihapus!")
-                        st.rerun()
-
-            # --- 2. FITUR EDIT AMILIN ---
-            with col_edit_amil:
-                with st.expander("✏️ Ubah Data (Edit)"):
-                    # Membuat daftar pilihan: "ID - Nama Pengurus (Jabatan)"
-                    daftar_pil_amil = [f"{row['ID']} - {row['Nama Pengurus']} ({row['Jabatan']})" for _, row in df_amil.iterrows()]
-                    pil_edit_amil = st.selectbox("Pilih Data yang akan diedit:", ["Pilih Data..."] + daftar_pil_amil, key="sel_edit_amil")
-                    
-                    if pil_edit_amil != "Pilih Data...":
-                        id_edit_amil = pil_edit_amil.split(" - ")[0]
-                        c.execute("SELECT nama, jabatan, beras, uang FROM amilin WHERE id=?", (id_edit_amil,))
-                        r_amil = c.fetchone()
-                        
-                        if r_amil:
-                            with st.form("form_edit_amil"):
-                                st.caption(f"Mengedit ID: {id_edit_amil}")
-                                e_nama_amil = st.text_input("Nama Pengurus:", value=r_amil[0])
-                                e_jab_amil = st.text_input("Jabatan:", value=r_amil[1])
-                                e_b_amil = st.number_input("Beras (Kg):", value=float(r_amil[2] or 0.0), step=0.5)
-                                e_u_amil = st.number_input("Uang (Rp):", value=int(r_amil[3] or 0), step=1000)
-                                
-                                if st.form_submit_button("💾 Simpan Perubahan", use_container_width=True):
-                                    c.execute("UPDATE amilin SET nama=?, jabatan=?, beras=?, uang=? WHERE id=?", 
-                                              (e_nama_amil, e_jab_amil, e_b_amil, e_u_amil, id_edit_amil))
-                                    conn.commit()
-                                    st.success("Data Amilin berhasil diperbarui!")
-                                    st.rerun()
-        else:
-            st.info("Belum ada data penyaluran Amilin.")
-
+            cd, ce = st.columns(2)
+            with cd:
+                with st.expander("🗑️ Hapus Amilin"):
+                    id_h = st.number_input("ID Hapus:", min_value=0, key="dami")
+                    if st.button("Hapus", key="h_ami"): c.execute("DELETE FROM amilin WHERE id=?", (id_h,)); conn.commit(); st.rerun()
     conn.close()
-    
+
+# ==========================================
+# DATA QURBAN
+# ==========================================
 elif pilihan_menu == "🐄 Data Qurban":
     st.title("🐄 Data Hewan Qurban Desa")
-    st.markdown("Kelola rekapitulasi data hewan qurban tingkat desa di sini.")
-
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # Ambil daftar DKM dari Master Data
     try:
-        c.execute("SELECT nama_dkm FROM master_dkm ORDER BY nama_dkm ASC")
+        c.execute("SELECT nama_dkm FROM master_dkm WHERE nama_desa=? ORDER BY nama_dkm ASC", (st.session_state["nama_desa"],))
         daftar_dkm = [row[0] for row in c.fetchall()]
-    except:
-        daftar_dkm = []
+    except: daftar_dkm = []
 
-    # Ambil tahun saat ini untuk nilai awal (default)
-    import datetime
-    tahun_sekarang = str(datetime.datetime.now().year)
-
-    # ==========================================
-    # FORM INPUT QURBAN
-    # ==========================================
     with st.form("form_qurban"):
-        st.subheader("Input Data Hewan Qurban")
-        
         col1, col2 = st.columns(2)
         with col1:
-            in_tahun = st.text_input("Tahun (Hijriah/Masehi):", value=tahun_sekarang)
-            
-            if daftar_dkm:
-                in_dkm = st.selectbox("Nama DKM / Wilayah:", ["Pilih DKM/Wilayah..."] + daftar_dkm)
-            else:
-                in_dkm = st.text_input("Nama DKM / Wilayah (Ketik manual):")
-                
+            in_tahun = st.text_input("Tahun (Hijriah/Masehi):", value=str(datetime.datetime.now().year))
+            in_dkm = st.selectbox("Nama DKM / Wilayah:", ["Pilih DKM..."] + daftar_dkm) if daftar_dkm else st.text_input("Nama DKM:")
             in_jenis = st.selectbox("Jenis Hewan Qurban:", ["Sapi", "Domba", "Kambing", "Kerbau"])
-
         with col2:
-            in_hewan = st.number_input("Jumlah Hewan (Ekor):", min_value=0, value=0, step=1)
-            in_mudhohi = st.number_input("Jumlah Mudhohi (Orang):", min_value=0, value=0, step=1, 
-                                         help="Biarkan 0 agar dihitung otomatis (Sapi/Kerbau = 7 Org, Domba/Kambing = 1 Org).")
+            in_hewan = st.number_input("Jumlah Hewan (Ekor):", min_value=0, value=0)
+            in_mudhohi = st.number_input("Jumlah Mudhohi (Orang):", min_value=0, value=0, help="0 = hitung otomatis")
 
-        submit_qurban = st.form_submit_button("💾 Simpan Data Qurban", use_container_width=True)
+        if st.form_submit_button("💾 Simpan Data Qurban"):
+            if in_mudhohi == 0: in_mudhohi = in_hewan * (7 if in_jenis in ["Sapi", "Kerbau"] else 1)
+            c.execute("INSERT INTO qurban (tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi, nama_desa) VALUES (?,?,?,?,?,?)", (in_tahun, in_dkm, in_jenis, in_hewan, in_mudhohi, st.session_state["nama_desa"]))
+            conn.commit(); st.rerun()
 
-        if submit_qurban:
-            if in_dkm == "Pilih DKM/Wilayah..." or not in_dkm:
-                st.error("Gagal! Nama DKM / Wilayah wajib diisi.")
-            elif in_hewan <= 0:
-                st.error("Gagal! Jumlah hewan harus lebih dari 0.")
-            else:
-                # Logika hitung otomatis jika mudhohi dibiarkan 0
-                if in_mudhohi == 0:
-                    pengali = 7 if in_jenis in ["Sapi", "Kerbau"] else 1
-                    in_mudhohi = in_hewan * pengali
-
-                try:
-                    c.execute("INSERT INTO qurban (tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi) VALUES (?,?,?,?,?)", 
-                              (in_tahun, in_dkm, in_jenis, in_hewan, in_mudhohi))
-                    conn.commit()
-                    st.success(f"Berhasil! Data Qurban dari **{in_dkm}** telah dicatat.")
-                    st.rerun() # Refresh tabel
-                except Exception as e:
-                    st.error(f"Terjadi kesalahan: {e}")
-
-    # ==========================================
-    # TABEL DAFTAR QURBAN
-    # ==========================================
-    st.markdown("---")
-    st.subheader("📋 Daftar Rekapitulasi Qurban")
-
-    query_qurban = """
-    SELECT 
-        id as ID, 
-        tahun as Tahun, 
-        nama_dkm as 'Nama DKM / Wilayah', 
-        jenis_hewan as 'Jenis Hewan', 
-        jumlah_hewan as 'Jml Hewan (Ekor)', 
-        jumlah_mudhohi as 'Jml Mudhohi (Orang)' 
-    FROM qurban 
-    ORDER BY tahun DESC, nama_dkm ASC
-    """
-    import pandas as pd
-    df_qurban = pd.read_sql_query(query_qurban, conn)
-
-    if not df_qurban.empty:
-        st.dataframe(df_qurban, use_container_width=True, hide_index=True)
-
-        col_del_qurban, col_edit_qurban = st.columns(2)
-
-        # --- 1. FITUR HAPUS QURBAN ---
-        with col_del_qurban:
-            with st.expander("🗑️ Hapus Data Qurban"):
-                id_hapus_qurban = st.number_input("Masukkan ID baris yang ingin dihapus:", min_value=0, step=1, key="del_qurban")
-                if st.button("Hapus Data Qurban", use_container_width=True):
-                    c.execute("DELETE FROM qurban WHERE id=?", (id_hapus_qurban,))
-                    conn.commit()
-                    st.success(f"Data dengan ID {id_hapus_qurban} berhasil dihapus!")
-                    st.rerun()
-
-        # --- 2. FITUR EDIT QURBAN ---
-        with col_edit_qurban:
-            with st.expander("✏️ Ubah Data (Edit)"):
-                # Membuat daftar pilihan: "ID - Nama DKM (Jenis Hewan)"
-                daftar_pil_qurban = [f"{row['ID']} - {row['Nama DKM / Wilayah']} ({row['Jenis Hewan']})" for _, row in df_qurban.iterrows()]
-                pil_edit_qurban = st.selectbox("Pilih Data yang akan diedit:", ["Pilih Data..."] + daftar_pil_qurban, key="sel_edit_qurban")
-                
-                if pil_edit_qurban != "Pilih Data...":
-                    id_edit_qurban = pil_edit_qurban.split(" - ")[0]
-                    c.execute("SELECT tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban WHERE id=?", (id_edit_qurban,))
-                    r_qurban = c.fetchone()
-                    
-                    if r_qurban:
-                        with st.form("form_edit_qurban"):
-                            st.caption(f"Mengedit ID: {id_edit_qurban}")
-                            e_tahun = st.text_input("Tahun:", value=r_qurban[0])
-                            
-                            # Ambil daftar DKM lagi khusus untuk form edit
-                            try:
-                                c.execute("SELECT nama_dkm FROM master_dkm ORDER BY nama_dkm ASC")
-                                d_dkm = [row[0] for row in c.fetchall()]
-                            except:
-                                d_dkm = []
-                                
-                            if r_qurban[1] in d_dkm:
-                                idx_dkm = d_dkm.index(r_qurban[1])
-                                e_dkm = st.selectbox("Nama DKM / Wilayah:", d_dkm, index=idx_dkm)
-                            else:
-                                e_dkm = st.text_input("Nama DKM / Wilayah:", value=r_qurban[1])
-
-                            opsi_hewan = ["Sapi", "Domba", "Kambing", "Kerbau"]
-                            idx_hewan = opsi_hewan.index(r_qurban[2]) if r_qurban[2] in opsi_hewan else 0
-                            e_jenis = st.selectbox("Jenis Hewan:", opsi_hewan, index=idx_hewan)
-                            
-                            e_hewan = st.number_input("Jml Hewan (Ekor):", value=int(r_qurban[3]), min_value=1)
-                            e_mudhohi = st.number_input("Jml Mudhohi (Orang):", value=int(r_qurban[4]), min_value=0, help="Ubah jadi 0 untuk dihitung otomatis")
-                            
-                            if st.form_submit_button("💾 Simpan Perubahan", use_container_width=True):
-                                m_baru = e_mudhohi
-                                
-                                # ---> LOGIKA OTOMATIS: Hitung mudhohi jika diisi 0
-                                if m_baru == 0:
-                                    pengali = 7 if e_jenis in ["Sapi", "Kerbau"] else 1
-                                    m_baru = e_hewan * pengali
-                                
-                                c.execute("UPDATE qurban SET tahun=?, nama_dkm=?, jenis_hewan=?, jumlah_hewan=?, jumlah_mudhohi=? WHERE id=?", 
-                                          (e_tahun, e_dkm, e_jenis, e_hewan, m_baru, id_edit_qurban))
-                                conn.commit()
-                                st.success("Data Qurban berhasil diperbarui!")
-                                st.rerun()
-    else:
-        st.info("Belum ada data hewan qurban yang tersimpan.")
-
+    df_qurban = pd.read_sql_query(f"SELECT id as ID, tahun as Tahun, nama_dkm as 'Nama DKM', jenis_hewan as 'Hewan', jumlah_hewan as 'Ekor', jumlah_mudhohi as 'Mudhohi' FROM qurban WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
+    if not df_qurban.empty: st.dataframe(df_qurban, use_container_width=True, hide_index=True)
     conn.close()
 
+# ==========================================
+# KELOLA DATA MASTER
+# ==========================================
 elif pilihan_menu == "📂 Kelola Data Master":
     st.title("📂 Kelola Data Master")
-    st.markdown("Kelola data UPZ DKM, Guru Ngaji, serta persentase distribusi di sini.")
-
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # Membuat 4 Tab
-    tab_dkm, tab_ngaji, tab_sab, tab_amil = st.tabs([
-        "🕌 Master UPZ DKM", "📖 Master Guru Ngaji", "📌 Kategori Sabilillah", "👔 Jabatan Amilin"
-    ])
+    t1, t2, t3, t4 = st.tabs(["🕌 Master DKM", "📖 Guru Ngaji", "📌 Kategori Sabilillah", "👔 Jabatan Amilin"])
 
-    # ================= TAB 1: MASTER DKM =================
-    with tab_dkm:
-        with st.form("form_dkm"):
-            st.subheader("Tambah UPZ DKM Baru")
-            col1, col2 = st.columns(2)
-            with col1:
-                in_nama = st.text_input("Nama UPZ DKM (Misal: AL-IKHLAS):")
-                in_ketua = st.text_input("Nama Ketua DKM:")
-            with col2:
-                in_alamat = st.text_input("Alamat Pusat:")
-                in_wakil = st.text_input("Daftar Wakil / Mushola (Pisahkan dengan koma):")
-            
-            if st.form_submit_button("💾 Simpan Data DKM"):
-                if in_nama:
-                    c.execute("INSERT INTO master_dkm (nama_dkm, ketua_dkm, alamat_dkm, perwakilan) VALUES (?,?,?,?)", 
-                              (in_nama.upper(), in_ketua, in_alamat, in_wakil))
-                    conn.commit()
-                    st.success(f"Berhasil menambahkan DKM {in_nama}")
-                    st.rerun()
-                else:
-                    st.error("Nama DKM tidak boleh kosong!")
-
-        st.markdown("---")
-        df_dkm = pd.read_sql_query("SELECT id as ID, nama_dkm as 'Nama DKM', ketua_dkm as 'Ketua', alamat_dkm as 'Alamat', perwakilan as 'Wakil' FROM master_dkm", conn)
+    with t1:
+        with st.form("f_dkm"):
+            i_nm = st.text_input("Nama UPZ DKM:")
+            i_kt = st.text_input("Ketua DKM:")
+            i_al = st.text_input("Alamat:")
+            i_wk = st.text_input("Perwakilan (Koma):")
+            if st.form_submit_button("Simpan"):
+                c.execute("INSERT INTO master_dkm (nama_dkm, ketua_dkm, alamat_dkm, perwakilan, nama_desa) VALUES (?,?,?,?,?)", (i_nm.upper(), i_kt, i_al, i_wk, st.session_state["nama_desa"]))
+                conn.commit(); st.rerun()
+        df_dkm = pd.read_sql_query(f"SELECT id as ID, nama_dkm as DKM, ketua_dkm as Ketua, alamat_dkm as Alamat FROM master_dkm WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
         st.dataframe(df_dkm, use_container_width=True, hide_index=True)
-        
-        with st.expander("🗑️ Hapus Data DKM"):
-            id_hapus = st.number_input("ID DKM yang dihapus:", min_value=0, step=1, key="del_dkm")
-            if st.button("Hapus DKM"):
-                c.execute("DELETE FROM master_dkm WHERE id=?", (id_hapus,))
-                conn.commit(); st.success("Terhapus!"); st.rerun()
 
-    # ================= TAB 2: GURU NGAJI =================
-    with tab_ngaji:
-        with st.form("form_ngaji"):
-            st.subheader("Tambah Data Guru Ngaji")
-            col1, col2 = st.columns(2)
-            with col1:
-                in_ngaji_nama = st.text_input("Nama Pengajar:")
-                in_ngaji_lembaga = st.text_input("Lembaga / Diniyah:")
-            with col2:
-                try:
-                    daftar_dkm = [row[0] for row in c.execute("SELECT nama_dkm FROM master_dkm").fetchall()]
-                except:
-                    daftar_dkm = []
-                in_ngaji_dkm = st.selectbox("UPZ DKM Terkait:", ["Pilih DKM..."] + daftar_dkm)
-                in_ngaji_alamat = st.text_input("Alamat / Dusun:")
-            
-            if st.form_submit_button("💾 Simpan Guru Ngaji"):
-                c.execute("INSERT INTO guru_ngaji (nama, lembaga, dkm, alamat) VALUES (?,?,?,?)", 
-                          (in_ngaji_nama, in_ngaji_lembaga, in_ngaji_dkm, in_ngaji_alamat))
-                conn.commit(); st.success("Data Tersimpan!"); st.rerun()
-
-        st.markdown("---")
-        df_ngaji = pd.read_sql_query("SELECT id as ID, nama as 'Nama', lembaga as 'Lembaga', dkm as 'DKM', alamat as 'Alamat' FROM guru_ngaji", conn)
-        st.dataframe(df_ngaji, use_container_width=True, hide_index=True)
-        
-        with st.expander("🗑️ Hapus Data Guru Ngaji"):
-            id_hapus_n = st.number_input("ID Guru Ngaji yang dihapus:", min_value=0, step=1, key="del_ngaji")
-            if st.button("Hapus Guru Ngaji"):
-                c.execute("DELETE FROM guru_ngaji WHERE id=?", (id_hapus_n,))
-                conn.commit(); st.success("Terhapus!"); st.rerun()
-
-    # ================= TAB 3: SABILILLAH & TAB 4: AMILIN =================
-    # Konsepnya sama persis. Kita gabungkan agar hemat ruang di layar
-    col_tab_3, col_tab_4 = st.columns(2)
-    
-    with tab_sab:
-        with st.form("form_kat_sab"):
-            s_nama = st.text_input("Kategori Sabilillah (Misal: Fakir Miskin):")
-            s_bobot = st.number_input("Bobot Porsi:", value=0.0)
-            if st.form_submit_button("Simpan Kategori"):
-                c.execute("INSERT INTO master_kategori_sab (nama, bobot) VALUES (?,?)", (s_nama, s_bobot))
+    with t2:
+        with st.form("f_ngaji"):
+            n_nm = st.text_input("Nama Pengajar:")
+            n_lm = st.text_input("Lembaga:")
+            n_dk = st.text_input("DKM Terkait:")
+            if st.form_submit_button("Simpan"):
+                c.execute("INSERT INTO guru_ngaji (nama, lembaga, dkm, nama_desa) VALUES (?,?,?,?)", (n_nm, n_lm, n_dk, st.session_state["nama_desa"]))
                 conn.commit(); st.rerun()
-        df_sab = pd.read_sql_query("SELECT id as ID, nama as 'Kategori', bobot as 'Bobot' FROM master_kategori_sab", conn)
-        st.dataframe(df_sab, use_container_width=True, hide_index=True)
+        df_ng = pd.read_sql_query(f"SELECT id as ID, nama, lembaga, dkm FROM guru_ngaji WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
+        st.dataframe(df_ng, use_container_width=True, hide_index=True)
 
-    with tab_amil:
-        with st.form("form_kat_amil"):
-            a_nama = st.text_input("Jabatan Amilin (Misal: Ketua):")
-            a_bobot = st.number_input("Bobot Porsi:", value=0.0)
-            if st.form_submit_button("Simpan Jabatan"):
-                c.execute("INSERT INTO master_jabatan_amil (nama, bobot) VALUES (?,?)", (a_nama, a_bobot))
+    with t3:
+        with st.form("f_ksab"):
+            s_nm = st.text_input("Kategori:")
+            s_bb = st.number_input("Bobot:", value=0.0)
+            if st.form_submit_button("Simpan"):
+                c.execute("INSERT INTO master_kategori_sab (nama, bobot, nama_desa) VALUES (?,?,?)", (s_nm, s_bb, st.session_state["nama_desa"]))
                 conn.commit(); st.rerun()
-        df_amil = pd.read_sql_query("SELECT id as ID, nama as 'Jabatan', bobot as 'Bobot' FROM master_jabatan_amil", conn)
-        st.dataframe(df_amil, use_container_width=True, hide_index=True)
 
+    with t4:
+        with st.form("f_jami"):
+            a_nm = st.text_input("Jabatan:")
+            a_bb = st.number_input("Bobot:", value=0.0)
+            if st.form_submit_button("Simpan"):
+                c.execute("INSERT INTO master_jabatan_amil (nama, bobot, nama_desa) VALUES (?,?,?)", (a_nm, a_bb, st.session_state["nama_desa"]))
+                conn.commit(); st.rerun()
     conn.close()
 
 # ==========================================
-# HALAMAN DATA MAJLIS TA'LIM
+# DATA MAJLIS TA'LIM
 # ==========================================
 elif pilihan_menu == "🕌 Data Majlis Ta'lim":
-    st.title("🕌 Data Majlis Ta'lim Desa")
-    st.markdown("Kelola daftar Majlis Ta'lim, Pimpinan, dan jadwal pengajian di sini.")
-
+    st.title("🕌 Data Majlis Ta'lim")
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-
-    # Form Input Majlis
-    with st.form("form_majlis"):
-        st.subheader("Tambah Data Majlis")
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            mj_nama = st.text_input("Nama Majlis Ta'lim:")
-            mj_pimpinan = st.text_input("Nama Pimpinan:")
-            mj_alamat = st.text_input("Alamat / Dusun:")
-            
-        with col2:
-            col_rt, col_rw = st.columns(2)
-            with col_rt: 
-                mj_rt = st.text_input("RT:")
-            with col_rw: 
-                mj_rw = st.text_input("RW:")
-            
-            mj_hari = st.selectbox("Hari Pengajian:", ["Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu", "Minggu", "Setiap Hari", "Kondisional"])
-            mj_jam = st.text_input("Jam Pengajian (Cth: 16:00 WIB):")
-
-        if st.form_submit_button("💾 Simpan Data Majlis", use_container_width=True):
-            if not mj_nama:
-                st.error("Nama Majlis wajib diisi!")
-            else:
-                c.execute("INSERT INTO majlis_talim (nama_majlis, alamat, rt, rw, hari, jam, pimpinan) VALUES (?,?,?,?,?,?,?)", 
-                          (mj_nama, mj_alamat, mj_rt, mj_rw, mj_hari, mj_jam, mj_pimpinan))
-                conn.commit()
-                st.success(f"Berhasil! Majlis {mj_nama} ditambahkan.")
-                st.rerun()
-
-    st.markdown("---")
-    st.subheader("📋 Daftar Majlis Ta'lim")
-    
-    # Menampilkan Tabel
-    query_mj = "SELECT id as ID, nama_majlis as 'Nama Majlis', pimpinan as 'Pimpinan', alamat as 'Alamat', rt||'/'||rw as 'RT/RW', hari||', '||jam as 'Waktu Pengajian' FROM majlis_talim"
-    df_mj = pd.read_sql_query(query_mj, conn)
-    
-    if not df_mj.empty:
-        st.dataframe(df_mj, use_container_width=True, hide_index=True)
-        
-        # Fitur Hapus
-        with st.expander("🗑️ Hapus Data Majlis"):
-            id_hapus_mj = st.number_input("Masukkan ID Majlis yang ingin dihapus:", min_value=0, step=1, key="del_mj")
-            if st.button("Hapus Data"):
-                c.execute("DELETE FROM majlis_talim WHERE id=?", (id_hapus_mj,))
-                conn.commit()
-                st.success(f"Data dengan ID {id_hapus_mj} dihapus!")
-                st.rerun()
-    else:
-        st.info("Belum ada data Majlis Ta'lim yang terdaftar.")
-        
+    with st.form("f_mj"):
+        m_nm = st.text_input("Nama Majlis:")
+        m_pim = st.text_input("Pimpinan:")
+        if st.form_submit_button("Simpan"):
+            c.execute("INSERT INTO majlis_talim (nama_majlis, pimpinan, nama_desa) VALUES (?,?,?)", (m_nm, m_pim, st.session_state["nama_desa"]))
+            conn.commit(); st.rerun()
+    df_mj = pd.read_sql_query(f"SELECT id, nama_majlis, pimpinan FROM majlis_talim WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
+    st.dataframe(df_mj, use_container_width=True, hide_index=True)
     conn.close()
 
 # ==========================================
-# HALAMAN ARSIP DATA LAMA
+# CETAK LAPORAN PDF
+# ==========================================
+elif pilihan_menu == "🖨️ Cetak Laporan PDF":
+    st.title("🖨️ Pencetakan Dokumen Laporan (PDF)")
+    st.write("Silakan atur tanggal titimangsa dan unduh laporanmu langsung ke perangkat.")
+
+    try: from fpdf import FPDF
+    except ImportError: st.error("Library FPDF belum terinstall."); st.stop()
+
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    c.execute("SELECT nama_desa FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
+    p_desa = c.fetchone()
+    desa_default = p_desa[0].capitalize() if p_desa and p_desa[0] else st.session_state["nama_desa"]
+
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
+        st.subheader("Atur Titimangsa Surat")
+        with st.container(border=True):
+            no_ba = st.text_input("Nomor Surat:", value=f"......./BAST/DPH/III/{datetime.datetime.now().year}")
+            hari_ba = st.text_input("Hari:", value="Senin")
+            tgl_ba = st.text_input("Tanggal Surat:", value="15 Ramadhan")
+            tempat_ba = st.text_input("Tempat TTD:", value=desa_default)
+
+    def cetak_kop_surat_resmi_web(pdf, desa, kec, kab, logo_path="", is_landscape=False):
+        page_width = 297 if is_landscape else 210
+        margin_side = 10 
+        pdf.set_y(10)
+        if logo_path and os.path.exists(logo_path):
+            try: pdf.image(logo_path, x=margin_side, y=10, w=22)
+            except: pass
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 6, "BADAN AMIL ZAKAT NASIONAL (BAZNAS)", ln=True, align="C")
+        pdf.set_font("Arial", "B", 16)
+        pdf.cell(0, 7, f"UNIT PENGUMPUL ZAKAT (UPZ) DESA {desa.upper()}", ln=True, align="C")
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 6, f"KECAMATAN {kec.upper()} - KABUPATEN {kab.upper()}", ln=True, align="C")
+        pdf.ln(5)
+        y_garis = max(pdf.get_y(), 34)
+        line_width = page_width - (margin_side * 2)
+        pdf.set_line_width(0.8)
+        pdf.line(margin_side, y_garis, margin_side + line_width, y_garis)
+        pdf.set_line_width(0.2)
+        pdf.line(margin_side, y_garis + 1, margin_side + line_width, y_garis + 1)
+        pdf.set_y(y_garis + 5)
+
+    with col2:
+        st.subheader("Daftar Dokumen Siap Unduh")
+        
+        # --- D3 ---
+        with st.expander("📄 Format D3 (Rekapitulasi 100%)", expanded=True):
+            if st.button("Siapkan Dokumen D3", use_container_width=True):
+                c.execute("SELECT nama_desa, kepala_desa, nama_kecamatan, kabupaten, ketua_upz, logo_path, no_hp, total_jiwa, total_kk FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
+                p_data = c.fetchone()
+                desa, kades, kec, kab, ketua, logo_path, no_hp, total_jiwa, total_kk = p_data if p_data else ("", "", "", "", "", "", "", 0, 0)
+                
+                c.execute("SELECT total_beras, total_uang, infaq FROM setoran_dkm WHERE nama_desa=?", (st.session_state["nama_desa"],))
+                dkm_rows = c.fetchall()
+                t_tb = sum(r[0] for r in dkm_rows); t_tu = sum(r[1] for r in dkm_rows); t_inf = sum(r[2] for r in dkm_rows)
+                
+                pdf = FPDF(orientation="P", unit="mm", format="A4"); pdf.set_margins(10, 10, 10); pdf.add_page()
+                cetak_kop_surat_resmi_web(pdf, desa, kec, kab, logo_path)
+                pdf.set_font("Arial", "B", 14); pdf.cell(0, 8, "FORMAT D3 - REKAPITULASI PENERIMAAN (100%)", ln=True, align="C"); pdf.ln(10)
+                pdf.set_font("Arial", "", 12); pdf.cell(0, 8, f"Total Beras: {t_tb:.2f} Kg", ln=True); pdf.cell(0, 8, f"Total Uang: Rp {int(t_tu):,}", ln=True)
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("📥 UNDUH PDF D3", data=pdf_bytes, file_name=f"D3_{desa}.pdf", mime="application/pdf", use_container_width=True)
+
+        # --- D2 ---
+        with st.expander("📄 Format D2 (Penerimaan DKM Landscape)"):
+            if st.button("Siapkan Dokumen D2", use_container_width=True):
+                pdf = FPDF(orientation="L", unit="mm", format="A4"); pdf.add_page()
+                cetak_kop_surat_resmi_web(pdf, st.session_state["nama_desa"], "", "", "", True)
+                pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "FORMAT D2 - REKAP PER DKM", ln=True, align="C")
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("📥 UNDUH PDF D2", data=pdf_bytes, file_name="D2.pdf", mime="application/pdf", use_container_width=True)
+
+        # --- D4 & D5 ---
+        with st.expander("📄 Format D4 & D5 (Distribusi Sabilillah)"):
+            if st.button("Siapkan Dokumen D4 & D5", use_container_width=True):
+                pdf = FPDF(orientation="P", unit="mm", format="A4"); pdf.add_page()
+                cetak_kop_surat_resmi_web(pdf, st.session_state["nama_desa"], "", "")
+                pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "FORMAT D4 & D5 - SABILILLAH", ln=True, align="C")
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("📥 UNDUH PDF D4 D5", data=pdf_bytes, file_name="D4_D5.pdf", mime="application/pdf", use_container_width=True)
+
+        # --- D6 ---
+        with st.expander("📄 Format D6 (Asnaf Amilin)"):
+            if st.button("Siapkan Dokumen D6", use_container_width=True):
+                pdf = FPDF(orientation="P", unit="mm", format="A4"); pdf.add_page()
+                cetak_kop_surat_resmi_web(pdf, st.session_state["nama_desa"], "", "")
+                pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "FORMAT D6 - AMILIN", ln=True, align="C")
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("📥 UNDUH PDF D6", data=pdf_bytes, file_name="D6.pdf", mime="application/pdf", use_container_width=True)
+                
+        # --- BAST KUPON ---
+        with st.expander("🎟️ BAST Kupon Infaq"):
+            if st.button("Siapkan Dokumen Kupon", use_container_width=True):
+                pdf = FPDF(orientation="P", unit="mm", format="A4"); pdf.add_page()
+                cetak_kop_surat_resmi_web(pdf, st.session_state["nama_desa"], "", "")
+                pdf.set_font("Arial", "B", 14); pdf.cell(0, 10, "BAST KUPON INFAQ", ln=True, align="C")
+                pdf_bytes = pdf.output(dest='S').encode('latin-1')
+                st.download_button("📥 UNDUH BAST KUPON", data=pdf_bytes, file_name="BAST_Kupon.pdf", mime="application/pdf", use_container_width=True)
+    conn.close()
+
+# ==========================================
+# ARSIP DATA LAMA
 # ==========================================
 elif pilihan_menu == "📁 Arsip Data Lama":
     st.title("📁 Arsip Data Tahunan")
-    st.markdown("Lihat dan kelola kembali data laporan zakat dari tahun-tahun sebelumnya.")
+    st.info("Fitur pengelolaan arsip data lama.")
+
+# ==========================================
+# PENGATURAN PROFIL DESA
+# ==========================================
+elif pilihan_menu == "⚙️ Pengaturan":
+    st.title("⚙️ Pengaturan Profil Desa")
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+
+    c.execute("SELECT * FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
+    data = c.fetchone()
+    
+    if not data:
+        c.execute("INSERT INTO pengaturan (nama_desa) VALUES (?)", (st.session_state["nama_desa"],))
+        conn.commit()
+        c.execute("SELECT * FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
+        data = c.fetchone()
+
+    with st.form("form_pengaturan"):
+        col1, col2 = st.columns(2)
+        with col1:
+            in_desa = st.text_input("Nama Desa:", value=data[1] if data[1] else st.session_state["nama_desa"], disabled=True)
+            in_kades = st.text_input("Kepala Desa:", value=data[2] if data[2] else "")
+            in_kec = st.text_input("Kecamatan:", value=data[3] if data[3] else "")
+            in_kab = st.text_input("Kabupaten:", value=data[4] if data[4] else "")
+        with col2:
+            in_ketua = st.text_input("Ketua UPZ:", value=data[5] if data[5] else "")
+            in_sek = st.text_input("Sekretaris:", value=data[6] if data[6] else "")
+            in_ben = st.text_input("Bendahara:", value=data[7] if data[7] else "")
+        
+        st.markdown("---")
+        col3, col4 = st.columns(2)
+        with col3:
+            in_tarif = st.number_input("Tarif Zakat Uang (Rp):", value=int(data[9]) if data[9] else 0)
+        with col4:
+            in_nom_kupon = st.number_input("Nominal Kupon Infaq (Rp):", value=int(data[13]) if len(data)>13 and data[13] else 0)
+
+        if st.form_submit_button("💾 Simpan Pengaturan", use_container_width=True):
+            c.execute('''UPDATE pengaturan SET 
+                         kepala_desa=?, nama_kecamatan=?, kabupaten=?, 
+                         ketua_upz=?, sekretaris=?, bendahara=?, tarif_uang=?, nominal_kupon=?
+                         WHERE nama_desa=?''', 
+                      (in_kades, in_kec, in_kab, in_ketua, in_sek, in_ben, float(in_tarif), float(in_nom_kupon), st.session_state["nama_desa"]))
+            conn.commit()
+            st.success("Pengaturan berhasil disimpan!"); st.rerun()
+    conn.close()
+
+# ==========================================
+# KELOLA PENGGUNA (KHUSUS ADMIN)
+# ==========================================
+elif pilihan_menu == "👥 Kelola Pengguna":
+    st.title("👥 Kelola Akun Pengguna (Multi-Desa)")
+    if st.session_state["role"] != "admin":
+        st.error("Hanya Admin Pusat yang bisa mengakses halaman ini!")
+        st.stop()
 
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
 
-    # Ambil daftar tahun yang ada di database arsip
-    c.execute('''
-        SELECT tahun_arsip FROM arsip_setoran_dkm
-        UNION SELECT tahun_arsip FROM arsip_sabilillah
-        UNION SELECT tahun_arsip FROM arsip_amilin
-        UNION SELECT tahun_arsip FROM arsip_distribusi_ngaji
-    ''')
-    tahun_list = sorted([str(r[0]) for r in c.fetchall()], reverse=True)
+    with st.form("form_user"):
+        st.subheader("Buat Akun UPZ Desa Baru")
+        col1, col2 = st.columns(2)
+        with col1:
+            u_desa = st.text_input("Nama Desa (Cth: Sukamaju):")
+            u_name = st.text_input("Username Login:")
+        with col2:
+            u_pass = st.text_input("Password Login:")
+            u_role = st.selectbox("Hak Akses:", ["user", "admin"])
 
-    if not tahun_list:
-        st.info("Belum ada data arsip yang tersimpan. Kamu bisa mengarsipkan data tahun ini melalui menu 'Pengaturan'.")
-    else:
-        # Form Pemilihan Tahun Arsip
-        col_thn, col_btn = st.columns([2, 1])
-        with col_thn:
-            pilih_tahun = st.selectbox("Pilih Tahun Arsip:", tahun_list)
-        
-        with col_btn:
-            st.write("") # Spacer agar tombol sejajar ke bawah
-            st.write("")
-            with st.popover("⚠️ Opsi Berbahaya"):
-                st.warning(f"Hapus seluruh arsip tahun {pilih_tahun}?")
-                if st.button("Ya, Hapus Permanen", type="primary"):
-                    c.execute("DELETE FROM arsip_setoran_dkm WHERE tahun_arsip=?", (pilih_tahun,))
-                    c.execute("DELETE FROM arsip_sabilillah WHERE tahun_arsip=?", (pilih_tahun,))
-                    c.execute("DELETE FROM arsip_amilin WHERE tahun_arsip=?", (pilih_tahun,))
-                    c.execute("DELETE FROM arsip_distribusi_ngaji WHERE tahun_arsip=?", (pilih_tahun,))
+        if st.form_submit_button("💾 Daftarkan Desa", use_container_width=True):
+            if u_name and u_pass and u_desa:
+                try:
+                    c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES (?,?,?,?)", (u_name, u_pass, u_role, u_desa))
+                    c.execute("INSERT INTO pengaturan (nama_desa) VALUES (?)", (u_desa,))
                     conn.commit()
-                    st.success(f"Arsip tahun {pilih_tahun} dihapus!")
+                    st.success(f"Akun untuk UPZ Desa {u_desa} berhasil dibuat!")
                     st.rerun()
+                except Exception as e:
+                    st.error(f"Gagal! Username mungkin sudah terpakai. Detail: {e}")
+            else:
+                st.error("Data wajib diisi lengkap!")
 
-        st.markdown("---")
-        
-        # Tab Tampilan Data Arsip sesuai tahun yang dipilih
-        tab_a1, tab_a2, tab_a3, tab_a4 = st.tabs(["📥 DKM", "📤 Sabilillah", "👔 Amilin", "📖 Guru Ngaji"])
-        
-        with tab_a1:
-            df_a1 = pd.read_sql_query(f"SELECT id as ID, nama_dkm as 'Nama DKM', total_beras as 'Beras (Kg)', total_uang as 'Uang Zakat (Rp)', infaq as 'Infaq (Rp)' FROM arsip_setoran_dkm WHERE tahun_arsip='{pilih_tahun}'", conn)
-            st.dataframe(df_a1, use_container_width=True, hide_index=True)
-            
-        with tab_a2:
-            df_a2 = pd.read_sql_query(f"SELECT id as ID, program as 'Program', penerima as 'Penerima', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM arsip_sabilillah WHERE tahun_arsip='{pilih_tahun}'", conn)
-            st.dataframe(df_a2, use_container_width=True, hide_index=True)
-            
-        with tab_a3:
-            df_a3 = pd.read_sql_query(f"SELECT id as ID, nama as 'Nama', jabatan as 'Jabatan', beras as 'Beras (Kg)', uang as 'Uang (Rp)' FROM arsip_amilin WHERE tahun_arsip='{pilih_tahun}'", conn)
-            st.dataframe(df_a3, use_container_width=True, hide_index=True)
-            
-        with tab_a4:
-            df_a4 = pd.read_sql_query(f"SELECT id as ID, nama as 'Nama', lembaga as 'Lembaga', dkm as 'DKM', uang as 'Uang (Rp)' FROM arsip_distribusi_ngaji WHERE tahun_arsip='{pilih_tahun}'", conn)
-            st.dataframe(df_a4, use_container_width=True, hide_index=True)
-
+    st.markdown("---")
+    df_users = pd.read_sql_query("SELECT id as ID, username as Username, role as Hak_Akses, nama_desa as 'Nama Desa' FROM users", conn)
+    st.dataframe(df_users, use_container_width=True, hide_index=True)
     conn.close()
 
 elif pilihan_menu == "🖨️ Cetak Laporan PDF":
