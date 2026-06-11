@@ -115,7 +115,8 @@ menu_halaman = [
 ]
 
 # Tambahkan menu ekstra jika yang login adalah Admin
-if st.session_state["role"] == "admin":
+# Tambahkan menu ekstra jika yang login adalah Admin/Kecamatan
+if st.session_state["role"] == "kecamatan" or st.session_state["role"] == "admin":
     menu_halaman.append("👥 Kelola Pengguna")
 
 pilihan_menu = st.sidebar.radio("Pilih Halaman:", menu_halaman)
@@ -643,7 +644,7 @@ elif pilihan_menu == "⚙️ Pengaturan":
 # ==========================================
 elif pilihan_menu == "👥 Kelola Pengguna":
     st.title("👥 Kelola Akun Pengguna (Multi-Desa)")
-    if st.session_state["role"] != "admin":
+    if st.session_state["role"] != "kecamatan" and st.session_state["role"] != "admin":
         st.error("Hanya Admin Pusat yang bisa mengakses halaman ini!")
         st.stop()
 
