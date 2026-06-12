@@ -22,10 +22,17 @@ def setup_multiuser():
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
     c.execute('''CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, username TEXT UNIQUE, password TEXT, role TEXT, nama_desa TEXT)''')
-    c.execute("SELECT COUNT(*) FROM users")
-    if c.fetchone()[0] == 0:
-        c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES ('adminkec', 'kecamatan123', 'kecamatan', 'KECAMATAN')")
     
+    # ====================================================
+    # KODE SAPU JAGAT: PAKSA RESET PASSWORD JADI KECAMATAN123
+    # ====================================================
+    c.execute("SELECT id FROM users WHERE username='adminkec'")
+    if not c.fetchone():
+        c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES ('adminkec', 'kecamatan123', 'admin', 'KECAMATAN')")
+    else:
+        c.execute("UPDATE users SET password='kecamatan123', role='admin' WHERE username='adminkec'")
+    # ====================================================
+
     tabel_list = ["pengaturan", "qurban", "master_dkm", "guru_ngaji", "majlis_talim", "master_kategori_sab", "master_jabatan_amil"]
     for tb in tabel_list:
         try: c.execute(f"ALTER TABLE {tb} ADD COLUMN nama_desa TEXT")
@@ -393,229 +400,6 @@ elif pilihan_menu == "📤 Distribusi UPZ Kecamatan":
                                     conn.commit(); st.rerun()
     conn.close()
 
-elif pilihan_menu == "📂 Kelola Data Master":
-    st.title("📂 Kelola Data Master")
-    conn = sqlite3.connect(DB_NAME)
-    c = conn.cursor()
-    st.info("💡 **Tips Otomasi:** Atur 'Bobot' (angka pembagi). Saat Bapak klik tombol Distribusikan Otomatis, sistem akan membagi nominal Uang dan Beras secara proporsional berdasar bobot ini.")
-    
-    is_kecamatan = st.session_state["role"] in ["kecamatan", "admin"]
-    
-    if is_kecamatan:
-        tabs = st.tabs(["📌 Kategori Sabilillah Kecamatan", "👔 Jabatan Amilin Kecamatan"])
-        t_sab, t_amil = tabs[0], tabs[1]
-    else:
-        tabs = st.tabs(["🕌 Master DKM", "📖 Guru Ngaji", "📌 Kategori Sabilillah", "👔 Jabatan Amilin"])
-        t_dkm, t_ngaji, t_sab, t_amil = tabs[0], tabs[1], tabs[2], tabs[3]
-        
-        with t_dkm:
-            with st.form("f_dkm"):
-                i_nm = st.text_input("Nama UPZ DKM:")
-                i_kt = st.text_input("Ketua DKM:")
-                i_al = st.text_input("Alamat:")
-                i_wk = st.text_input("Perwakilan (Koma):")
-                if st.form_submit_button("Simpan Master DKM", width='stretch'):
-                    c.execute("SELECT id FROM master_dkm WHERE nama_dkm=? AND nama_desa=?", (i_nm.upper(), st.session_state["nama_desa"]))
-                    if c.fetchone():
-                        st.error("⚠️ GAGAL! Nama DKM ini sudah terdaftar.")
-                    else:
-                        c.execute("INSERT INTO master_dkm (nama_dkm, ketua_dkm, alamat_dkm, perwakilan, nama_desa) VALUES (?,?,?,?,?)", (i_nm.upper(), i_kt, i_al, i_wk, st.session_state["nama_desa"]))
-                        conn.commit(); st.rerun()
-            df_dkm = pd.read_sql_query(f"SELECT id as ID, nama_dkm as DKM, ketua_dkm as Ketua, alamat_dkm as Alamat FROM master_dkm WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
-            st.dataframe(df_dkm, width='stretch', hide_index=True)
-            if not df_dkm.empty:
-                c1, c2 = st.columns(2)
-                with c1:
-                    with st.expander("🗑️ Hapus DKM"):
-                        id_h = st.number_input("ID Hapus:", min_value=0, key="d_dkm")
-                        if st.button("Hapus", key="b_d_dkm"): 
-                            c.execute("DELETE FROM master_dkm WHERE id=?", (id_h,)); conn.commit(); st.rerun()
-                with c2:
-                    with st.expander("✏️ Edit DKM"):
-                        pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['DKM']}" for _, r in df_dkm.iterrows()], key="e_dkm")
-                        if pil_e != "Pilih...":
-                            id_e = pil_e.split(" - ")[0]
-                            c.execute("SELECT nama_dkm, ketua_dkm, alamat_dkm, perwakilan FROM master_dkm WHERE id=?", (id_e,))
-                            r_e = c.fetchone()
-                            if r_e:
-                                with st.form("f_e_dkm"):
-                                    e_nm = st.text_input("DKM:", value=r_e[0])
-                                    e_kt = st.text_input("Ketua:", value=r_e[1])
-                                    e_al = st.text_input("Alamat:", value=r_e[2])
-                                    e_wk = st.text_input("Wakil:", value=r_e[3])
-                                    if st.form_submit_button("Simpan"):
-                                        c.execute("UPDATE master_dkm SET nama_dkm=?, ketua_dkm=?, alamat_dkm=?, perwakilan=? WHERE id=?", (e_nm, e_kt, e_al, e_wk, id_e)); conn.commit(); st.rerun()
-            
-        with t_ngaji:
-            c.execute("SELECT nama_dkm FROM master_dkm WHERE nama_desa=? ORDER BY nama_dkm ASC", (st.session_state["nama_desa"],))
-            daftar_dkm = [row[0] for row in c.fetchall()]
-            
-            with st.form("f_ngaji"):
-                n_nm = st.text_input("Nama Pengajar:")
-                n_lm = st.text_input("Lembaga / TPQ:")
-                n_dk = st.selectbox("Terhubung ke DKM:", ["Pilih DKM..."] + daftar_dkm) if daftar_dkm else st.text_input("DKM Terkait:")
-                n_bb = st.number_input("Bobot Hak Infaq (Contoh: 1.0 atau 2.0):", value=1.0, step=0.5)
-                if st.form_submit_button("Simpan Guru Ngaji", width='stretch'):
-                    c.execute("SELECT id FROM guru_ngaji WHERE nama=? AND lembaga=? AND dkm=? AND nama_desa=?", (n_nm, n_lm, n_dk, st.session_state["nama_desa"]))
-                    if c.fetchone():
-                        st.error("⚠️ GAGAL! Guru dengan nama dan lembaga tersebut sudah terdaftar.")
-                    else:
-                        c.execute("INSERT INTO guru_ngaji (nama, lembaga, dkm, bobot, nama_desa) VALUES (?,?,?,?,?)", (n_nm, n_lm, n_dk, n_bb, st.session_state["nama_desa"]))
-                        conn.commit(); st.rerun()
-            df_ng = pd.read_sql_query(f"SELECT id as ID, nama as Nama, lembaga as Lembaga, dkm as DKM, bobot as Bobot FROM guru_ngaji WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
-            st.dataframe(df_ng, width='stretch', hide_index=True)
-            if not df_ng.empty:
-                c1, c2 = st.columns(2)
-                with c1:
-                    with st.expander("🗑️ Hapus Guru"):
-                        id_h = st.number_input("ID Hapus:", min_value=0, key="d_ngaji")
-                        if st.button("Hapus", key="b_d_ngaji"): 
-                            c.execute("DELETE FROM guru_ngaji WHERE id=?", (id_h,)); conn.commit(); st.rerun()
-                with c2:
-                    with st.expander("✏️ Edit Guru"):
-                        pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama']}" for _, r in df_ng.iterrows()], key="e_ngaji")
-                        if pil_e != "Pilih...":
-                            id_e = pil_e.split(" - ")[0]
-                            c.execute("SELECT nama, lembaga, dkm, bobot FROM guru_ngaji WHERE id=?", (id_e,))
-                            r_e = c.fetchone()
-                            if r_e:
-                                with st.form("f_e_ngaji"):
-                                    e_nm = st.text_input("Nama:", value=r_e[0])
-                                    e_lm = st.text_input("Lembaga:", value=r_e[1])
-                                    e_dk = st.text_input("DKM:", value=r_e[2])
-                                    e_bb = st.number_input("Bobot:", value=float(r_e[3] or 1.0), step=0.5)
-                                    if st.form_submit_button("Simpan"):
-                                        c.execute("UPDATE guru_ngaji SET nama=?, lembaga=?, dkm=?, bobot=? WHERE id=?", (e_nm, e_lm, e_dk, e_bb, id_e)); conn.commit(); st.rerun()
-            
-    with t_sab:
-        with st.form("f_ksab"):
-            s_nm = st.text_input("Nama Organisasi / Penerima Sabilillah:")
-            s_bb = st.number_input("Bobot / Porsi Pembagian:", value=1.0, step=0.5)
-            if st.form_submit_button("Simpan Kategori Sabilillah", width='stretch'):
-                c.execute("SELECT id FROM master_kategori_sab WHERE nama=? AND nama_desa=?", (s_nm, st.session_state["nama_desa"]))
-                if c.fetchone():
-                    st.error("⚠️ GAGAL! Nama Organisasi Sabilillah sudah ada.")
-                else:
-                    c.execute("INSERT INTO master_kategori_sab (nama, bobot, nama_desa) VALUES (?,?,?)", (s_nm, s_bb, st.session_state["nama_desa"]))
-                    conn.commit(); st.rerun()
-        df_ksab = pd.read_sql_query(f"SELECT id as ID, nama as Kategori, bobot as Bobot FROM master_kategori_sab WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
-        st.dataframe(df_ksab, width='stretch', hide_index=True)
-        if not df_ksab.empty:
-            c1, c2 = st.columns(2)
-            with c1:
-                with st.expander("🗑️ Hapus Kategori"):
-                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_ksab")
-                    if st.button("Hapus", key="b_d_ksab"): 
-                        c.execute("DELETE FROM master_kategori_sab WHERE id=?", (id_h,)); conn.commit(); st.rerun()
-            with c2:
-                with st.expander("✏️ Edit Kategori"):
-                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Kategori']}" for _, r in df_ksab.iterrows()], key="e_ksab")
-                    if pil_e != "Pilih...":
-                        id_e = pil_e.split(" - ")[0]
-                        c.execute("SELECT nama, bobot FROM master_kategori_sab WHERE id=?", (id_e,))
-                        r_e = c.fetchone()
-                        if r_e:
-                            with st.form("f_e_ksab"):
-                                e_nm = st.text_input("Kategori:", value=r_e[0])
-                                e_bb = st.number_input("Bobot:", value=float(r_e[1]), step=0.5)
-                                if st.form_submit_button("Simpan"):
-                                    c.execute("UPDATE master_kategori_sab SET nama=?, bobot=? WHERE id=?", (e_nm, e_bb, id_e)); conn.commit(); st.rerun()
-            
-    with t_amil:
-        with st.form("f_jami"):
-            a_nm = st.text_input("Jabatan & Nama (Misal: Ketua - Bpk Ahmad):")
-            a_bb = st.number_input("Bobot / Porsi Pembagian:", value=1.0, step=0.5)
-            if st.form_submit_button("Simpan Pengurus Amil", width='stretch'):
-                c.execute("SELECT id FROM master_jabatan_amil WHERE nama=? AND nama_desa=?", (a_nm, st.session_state["nama_desa"]))
-                if c.fetchone():
-                    st.error("⚠️ GAGAL! Jabatan & Nama Amil tersebut sudah terdaftar.")
-                else:
-                    c.execute("INSERT INTO master_jabatan_amil (nama, bobot, nama_desa) VALUES (?,?,?)", (a_nm, a_bb, st.session_state["nama_desa"]))
-                    conn.commit(); st.rerun()
-        df_jami = pd.read_sql_query(f"SELECT id as ID, nama as 'Jabatan & Nama', bobot as Bobot FROM master_jabatan_amil WHERE nama_desa='{st.session_state['nama_desa']}'", conn)
-        st.dataframe(df_jami, width='stretch', hide_index=True)
-        if not df_jami.empty:
-            c1, c2 = st.columns(2)
-            with c1:
-                with st.expander("🗑️ Hapus Jabatan"):
-                    id_h = st.number_input("ID Hapus:", min_value=0, key="d_jami")
-                    if st.button("Hapus", key="b_d_jami"): 
-                        c.execute("DELETE FROM master_jabatan_amil WHERE id=?", (id_h,)); conn.commit(); st.rerun()
-            with c2:
-                with st.expander("✏️ Edit Jabatan"):
-                    pil_e = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Jabatan & Nama']}" for _, r in df_jami.iterrows()], key="e_jami")
-                    if pil_e != "Pilih...":
-                        id_e = pil_e.split(" - ")[0]
-                        c.execute("SELECT nama, bobot FROM master_jabatan_amil WHERE id=?", (id_e,))
-                        r_e = c.fetchone()
-                        if r_e:
-                            with st.form("f_e_jami"):
-                                e_nm = st.text_input("Jabatan:", value=r_e[0])
-                                e_bb = st.number_input("Bobot:", value=float(r_e[1]), step=0.5)
-                                if st.form_submit_button("Simpan"):
-                                    c.execute("UPDATE master_jabatan_amil SET nama=?, bobot=? WHERE id=?", (e_nm, e_bb, id_e)); conn.commit(); st.rerun()
-    conn.close()
-
-# MENU INI SEMPAT HILANG, SEKARANG SUDAH DIKEMBALIKAN!
-elif pilihan_menu == "🖨️ Laporan Rekap Desa":
-    st.title("🖨️ Cetak Laporan PDF Kecamatan")
-    col1, col2 = st.columns([1, 1.5])
-    with col1:
-        st.subheader("Atur Surat & Titimangsa")
-        no_surat = st.text_input("Nomor Surat (Pengajuan 6%):", value="001/UPZ-KEC/2026")
-        tempat_ba = st.text_input("Tempat TTD:", value="Kecamatan")
-        tgl_ba = st.text_input("Tanggal Surat:", value="15 Ramadhan 1446")
-        
-    with col2:
-        st.subheader("Daftar Dokumen (Format K)")
-        with st.expander("📄 Format K1 (Rekapitulasi 5%)", expanded=True):
-            if st.button("🔄 Buat / Perbarui K1", width='stretch'):
-                st.session_state['pdf_k1'] = mc.cetak_k1_kecamatan(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_k1' in st.session_state:
-                st.download_button("📥 UNDUH PDF K1", data=st.session_state['pdf_k1'], file_name="Format_K1.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("📄 Format K2 (Lap. Mustahik Sabilillah)"):
-            if st.button("🔄 Buat / Perbarui K2", width='stretch'):
-                st.session_state['pdf_k2'] = mc.cetak_k2_sabilillah(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_k2' in st.session_state:
-                st.download_button("📥 UNDUH PDF K2", data=st.session_state['pdf_k2'], file_name="Format_K2.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("📄 Format K3 (Rekapitulasi Program)"):
-            if st.button("🔄 Buat / Perbarui K3", width='stretch'):
-                st.session_state['pdf_k3'] = mc.cetak_k3_program(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_k3' in st.session_state:
-                st.download_button("📥 UNDUH PDF K3", data=st.session_state['pdf_k3'], file_name="Format_K3.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("📄 Format K4 (Daftar Penyaluran Amilin)"):
-            if st.button("🔄 Buat / Perbarui K4", width='stretch'):
-                st.session_state['pdf_k4'] = mc.cetak_k4_amilin(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_k4' in st.session_state:
-                st.download_button("📥 UNDUH PDF K4", data=st.session_state['pdf_k4'], file_name="Format_K4.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("✉️ Surat Pengajuan 6% ke BAZNAS Kab"):
-            if st.button("🔄 Buat / Perbarui Surat 6%", width='stretch'):
-                st.session_state['pdf_surat6'] = mc.cetak_surat_6persen(DB_NAME, tempat_ba, tgl_ba, no_surat)
-            if 'pdf_surat6' in st.session_state:
-                st.download_button("📥 UNDUH SURAT 6%", data=st.session_state['pdf_surat6'], file_name="Surat_6Persen.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("🧾 Cetak Kwitansi Kosong"):
-            if st.button("🔄 Buat Kwitansi", width='stretch'):
-                st.session_state['pdf_kwitansi'] = mc.cetak_kwitansi("Nama Lembaga", 1500000, "Bantuan Sarana", f"{tempat_ba}, {tgl_ba}")
-            if 'pdf_kwitansi' in st.session_state:
-                st.download_button("📥 UNDUH KWITANSI", data=st.session_state['pdf_kwitansi'], file_name="Kwitansi.pdf", mime="application/pdf", width='stretch')
-                
-        with st.expander("🐄 Rekap Hewan Qurban (Kecamatan)"):
-            if st.button("🔄 Buat Rekap Qurban", width='stretch'):
-                st.session_state['pdf_q_kec'] = mc.cetak_rekap_qurban_kec(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_q_kec' in st.session_state:
-                st.download_button("📥 UNDUH REKAP QURBAN", data=st.session_state['pdf_q_kec'], file_name="Rekap_Qurban_Kecamatan.pdf", mime="application/pdf", width='stretch')
-
-        with st.expander("🕌 Rekap Majlis Ta'lim (Kecamatan)"):
-            if st.button("🔄 Buat Rekap Majlis Ta'lim", width='stretch'):
-                st.session_state['pdf_m_kec'] = mc.cetak_rekap_majlis_kec(DB_NAME, tempat_ba, tgl_ba)
-            if 'pdf_m_kec' in st.session_state:
-                st.download_button("📥 UNDUH REKAP MAJLIS", data=st.session_state['pdf_m_kec'], file_name="Rekap_Majlis_Kecamatan.pdf", mime="application/pdf", width='stretch')
-
 elif pilihan_menu == "⚙️ Profil Kecamatan":
     st.title("⚙️ Pengaturan Profil Kecamatan")
     conn = sqlite3.connect(DB_NAME)
@@ -655,50 +439,59 @@ elif pilihan_menu == "👥 Kelola Pengguna":
     st.title("👥 Kelola Akun")
     conn = sqlite3.connect(DB_NAME)
     c = conn.cursor()
-    with st.form("form_user"):
-        c1, c2 = st.columns(2)
-        with c1: 
-            u_desa = st.text_input("Nama Desa:")
-            u_name = st.text_input("Username:")
-        with c2: 
-            u_pass = st.text_input("Password:")
-            u_role = st.selectbox("Akses:", ["desa", "kecamatan", "user", "admin"])
-        if st.form_submit_button("💾 Simpan", width='stretch'):
-            if u_name and u_pass:
-                c.execute("SELECT id FROM users WHERE username=?", (u_name,))
-                if c.fetchone():
-                    st.error("⚠️ GAGAL! Username tersebut sudah digunakan. Pilih username lain.")
-                else:
-                    c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES (?,?,?,?)", (u_name, u_pass, u_role, u_desa))
-                    conn.commit()
-                    st.rerun()
+    
+    is_admin = st.session_state["role"] == "admin"
+    
+    if is_admin:
+        with st.form("form_user"):
+            c1, c2 = st.columns(2)
+            with c1: 
+                u_desa = st.text_input("Nama Desa:")
+                u_name = st.text_input("Username:")
+            with c2: 
+                u_pass = st.text_input("Password:")
+                u_role = st.selectbox("Akses:", ["desa", "kecamatan", "user", "admin"])
+            if st.form_submit_button("💾 Simpan Pengguna Baru", width='stretch'):
+                if u_name and u_pass:
+                    c.execute("SELECT id FROM users WHERE username=?", (u_name,))
+                    if c.fetchone():
+                        st.error("⚠️ GAGAL! Username tersebut sudah digunakan. Pilih username lain.")
+                    else:
+                        c.execute("INSERT INTO users (username, password, role, nama_desa) VALUES (?,?,?,?)", (u_name, u_pass, u_role, u_desa))
+                        conn.commit()
+                        st.rerun()
+    else:
+        st.error("🔒 Halaman Terbatas: Hanya pengguna dengan akses 'Admin' yang dapat menambah, mengubah, atau menghapus pengguna.")
+
     df_u = pd.read_sql_query("SELECT id as ID, username as Username, password as Password, role as Akses, nama_desa as Desa FROM users", conn)
     st.dataframe(df_u, width='stretch', hide_index=True)
-    col_del, col_edit = st.columns(2)
-    with col_del:
-        with st.expander("🗑️ Hapus Akun"):
-            id_h = st.number_input("ID Hapus Akun:", min_value=0, step=1, key="id_hapus_akun")
-            if st.button("Hapus Akun", key="btn_hapus_akun"): 
-                c.execute("DELETE FROM users WHERE id=?", (id_h,))
-                conn.commit()
-                st.rerun()
-    with col_edit:
-        with st.expander("✏️ Ubah Akun"):
-            pil_edit = st.selectbox("Pilih Akun:", ["Pilih..."] + [f"{r['ID']} - {r['Username']}" for _, r in df_u.iterrows()], key="e_user")
-            if pil_edit != "Pilih...":
-                id_e = pil_edit.split(" - ")[0]
-                c.execute("SELECT username, password, role, nama_desa FROM users WHERE id=?", (id_e,))
-                r_e = c.fetchone()
-                if r_e:
-                    with st.form("f_e_user"):
-                        e_usr = st.text_input("Username:", value=r_e[0])
-                        e_pass = st.text_input("Password:", value=r_e[1])
-                        e_role = st.selectbox("Akses:", ["desa", "kecamatan", "user", "admin"], index=["desa", "kecamatan", "user", "admin"].index(r_e[2]))
-                        e_ds = st.text_input("Nama Desa:", value=r_e[3])
-                        if st.form_submit_button("Simpan Perubahan", width='stretch'):
-                            c.execute("UPDATE users SET username=?, password=?, role=?, nama_desa=? WHERE id=?", (e_usr, e_pass, e_role, e_ds, id_e))
-                            conn.commit()
-                            st.rerun()
+    
+    if is_admin:
+        col_del, col_edit = st.columns(2)
+        with col_del:
+            with st.expander("🗑️ Hapus Akun"):
+                id_h = st.number_input("ID Hapus Akun:", min_value=0, step=1, key="id_hapus_akun")
+                if st.button("Hapus Akun", key="btn_hapus_akun"): 
+                    c.execute("DELETE FROM users WHERE id=?", (id_h,))
+                    conn.commit()
+                    st.rerun()
+        with col_edit:
+            with st.expander("✏️ Ubah Akun"):
+                pil_edit = st.selectbox("Pilih Akun:", ["Pilih..."] + [f"{r['ID']} - {r['Username']}" for _, r in df_u.iterrows()], key="e_user")
+                if pil_edit != "Pilih...":
+                    id_e = pil_edit.split(" - ")[0]
+                    c.execute("SELECT username, password, role, nama_desa FROM users WHERE id=?", (id_e,))
+                    r_e = c.fetchone()
+                    if r_e:
+                        with st.form("f_e_user"):
+                            e_usr = st.text_input("Username:", value=r_e[0])
+                            e_pass = st.text_input("Password:", value=r_e[1])
+                            e_role = st.selectbox("Akses:", ["desa", "kecamatan", "user", "admin"], index=["desa", "kecamatan", "user", "admin"].index(r_e[2]))
+                            e_ds = st.text_input("Nama Desa:", value=r_e[3])
+                            if st.form_submit_button("Simpan Perubahan", width='stretch'):
+                                c.execute("UPDATE users SET username=?, password=?, role=?, nama_desa=? WHERE id=?", (e_usr, e_pass, e_role, e_ds, id_e))
+                                conn.commit()
+                                st.rerun()
     conn.close()
 
 # =========================================================================
@@ -735,11 +528,15 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
     c = conn.cursor()
     c.execute("SELECT nama_dkm FROM master_dkm WHERE nama_desa=? ORDER BY nama_dkm ASC", (st.session_state["nama_desa"],))
     daftar_dkm = [row[0] for row in c.fetchall()]
+    
+    # SINKRONISASI OTOMATIS DARI PENGATURAN
     c.execute("SELECT tarif_beras, tarif_uang, nominal_kupon FROM pengaturan WHERE nama_desa=?", (st.session_state["nama_desa"],))
     res_tarif = c.fetchone()
     t_b = float(res_tarif[0]) if res_tarif and res_tarif[0] else 2.5
-    t_u = float(res_tarif[1]) if res_tarif and res_tarif[1] else 35000
+    t_u = float(res_tarif[1]) if res_tarif and res_tarif[1] else 37000.0  
     nom_kupon = float(res_tarif[2]) if res_tarif and res_tarif[2] else 2000.0
+
+    st.info(f"💡 **Tarif Otomatis saat ini:** Beras = {t_b} Kg/Jiwa | Uang = {format_rupiah(t_u)}/Jiwa | Kupon Infaq = {format_rupiah(nom_kupon)}/Lembar\n*(Ubah di menu Pengaturan jika ada perubahan tarif)*")
 
     selected_dkm = st.selectbox("Pilih UPZ DKM Induk:", ["Pilih DKM..."] + daftar_dkm) if daftar_dkm else st.text_input("Nama UPZ DKM Induk:")
     with st.form("form_penerimaan"):
@@ -750,37 +547,73 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
         with col2: 
             wakil_upz = st.text_input("Wakil UPZ:")
         
-        mode_input = st.radio("Metode Input:", ["Berdasarkan Data Jiwa", "Berdasarkan Setoran Fisik"], horizontal=True)
+        st.markdown("---")
         cz, ci = st.columns(2)
         with cz:
-            j_b = st.number_input("Muzakki Beras (Jiwa):", min_value=0, value=0)
-            j_u = st.number_input("Muzakki Uang (Jiwa):", min_value=0, value=0)
-            f_b = st.number_input("Fisik Beras (Kg):", min_value=0.0, value=0.0, step=0.5)
-            f_u = st.number_input("Fisik Uang (Rp):", min_value=0, value=0, step=1000)
+            st.subheader("1. Data Zakat Fitrah")
+            mode_zakat = st.radio("Metode Hitung Zakat:", 
+                                  ["Input Jumlah Jiwa", 
+                                   "Input Total Keseluruhan (Rp/Kg)", 
+                                   "Input Fisik Disetor 17.5%"])
+            in_b = st.number_input("Angka Zakat Beras (Sesuai Pilihan di Atas):", min_value=0.0, value=0.0, step=0.5)
+            in_u = st.number_input("Angka Zakat Uang (Sesuai Pilihan di Atas):", min_value=0, value=0, step=1000)
+        
         with ci:
-            k_diterima = st.number_input("Kupon Diterima:", min_value=0, value=0)
-            k_terjual = st.number_input("Kupon Terjual:", min_value=0, value=0)
-            k_kembali = st.number_input("Kupon Kembali:", min_value=0, value=0)
-            infaq_uang = st.number_input("Uang Infaq Tunai (Rp):", min_value=0, value=0)
-
-        if st.form_submit_button("💾 Simpan", width='stretch'):
-            c.execute("SELECT id FROM setoran_dkm WHERE nama_dkm=? AND nama_desa=?", (selected_dkm, st.session_state["nama_desa"]))
-            if c.fetchone():
-                st.error(f"⚠️ GAGAL! Data setoran untuk DKM '{selected_dkm}' sudah ada. Silakan gunakan fitur EDIT di bawah.")
+            st.subheader("2. Data Kupon & Infaq")
+            k_diterima = st.number_input("Total Kupon Diberikan BAZNAS (Lembar):", min_value=0, value=0)
+            mode_kupon = st.radio("Metode Hitung Kupon Terjual:", 
+                                  ["Input Lembar Kupon Terjual", 
+                                   "Input Uang Setoran Kupon"])
+            if "Lembar" in mode_kupon:
+                k_input = st.number_input("Kupon Terjual (Lembar):", min_value=0, value=0)
             else:
-                tipe_input = "jiwa" if mode_input == "Berdasarkan Data Jiwa" else "fisik"
-                if tipe_input == "jiwa": 
-                    tb = j_b * t_b; tu = j_u * t_u; fb = tb * 0.175; fu = tu * 0.175; jiwa_b=j_b; jiwa_u=j_u
+                u_input = st.number_input("Total Uang Setoran Kupon (Rp):", min_value=0, value=0, step=1000)
+                
+            infaq_uang = st.number_input("Uang Infaq Tunai/Bebas Tambahan (Rp):", min_value=0, value=0, help="Di luar uang kupon (jika ada)")
+
+        if st.form_submit_button("💾 Simpan Data Setoran", width='stretch'):
+            if selected_dkm == "Pilih DKM...":
+                st.error("⚠️ GAGAL! Silakan pilih DKM terlebih dahulu.")
+            else:
+                c.execute("SELECT id FROM setoran_dkm WHERE nama_dkm=? AND nama_desa=?", (selected_dkm, st.session_state["nama_desa"]))
+                if c.fetchone():
+                    st.error(f"⚠️ GAGAL! Data setoran untuk DKM '{selected_dkm}' sudah ada. Silakan gunakan fitur EDIT di bawah.")
                 else:
-                    fb = f_b; fu = f_u; tb = fb / 0.175 if fb > 0 else 0; tu = fu / 0.175 if fu > 0 else 0
-                    jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0; jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
-                
-                infaq_rp = float(infaq_uang) + float(k_terjual * nom_kupon)
-                
-                c.execute('''INSERT INTO setoran_dkm (nama_dkm, alamat_dkm, perwakilan, alamat_perwakilan, tipe_input, jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, total_beras, total_uang, infaq, kupon_diterima, kupon_terjual, kupon_kembali, nama_desa) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (selected_dkm, alamat_dkm, wakil_upz, alamat_wakil, tipe_input, jiwa_b, jiwa_u, fb, fu, tb, tu, infaq_rp, k_diterima, k_terjual, k_kembali, st.session_state["nama_desa"]))
-                conn.commit()
-                st.success("✅ Tersimpan!")
-                st.rerun()
+                    # LOGIKA ZAKAT
+                    if "Jumlah Jiwa" in mode_zakat:
+                        jiwa_b = int(in_b); jiwa_u = int(in_u)
+                        tb = jiwa_b * t_b; tu = jiwa_u * t_u
+                        fb = tb * 0.175; fu = tu * 0.175
+                        mode_db = "jiwa"
+                    elif "Keseluruhan" in mode_zakat:
+                        tb = float(in_b); tu = float(in_u)
+                        jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0
+                        jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
+                        fb = tb * 0.175; fu = tu * 0.175
+                        mode_db = "total_100"
+                    else:
+                        fb = float(in_b); fu = float(in_u)
+                        tb = fb / 0.175 if fb > 0 else 0; tu = fu / 0.175 if fu > 0 else 0
+                        jiwa_b = int(round(tb / t_b)) if t_b > 0 else 0; jiwa_u = int(round(tu / t_u)) if t_u > 0 else 0
+                        mode_db = "fisik_17.5"
+                    
+                    # LOGIKA KUPON OTOMATIS
+                    if "Lembar" in mode_kupon:
+                        k_terjual = int(k_input)
+                        uang_kupon = k_terjual * nom_kupon
+                    else:
+                        uang_kupon = float(u_input)
+                        k_terjual = int(uang_kupon / nom_kupon) if nom_kupon > 0 else 0
+                        
+                    k_kembali = k_diterima - k_terjual
+                    if k_kembali < 0: k_kembali = 0 # Mencegah kupon kembali jadi minus jika ada typo
+                    
+                    infaq_rp = float(infaq_uang) + float(uang_kupon)
+                    
+                    c.execute('''INSERT INTO setoran_dkm (nama_dkm, alamat_dkm, perwakilan, alamat_perwakilan, tipe_input, jiwa_beras, jiwa_uang, fisik_beras, fisik_uang, total_beras, total_uang, infaq, kupon_diterima, kupon_terjual, kupon_kembali, nama_desa) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)''', (selected_dkm, alamat_dkm, wakil_upz, alamat_wakil, mode_db, jiwa_b, jiwa_u, fb, fu, tb, tu, infaq_rp, k_diterima, k_terjual, k_kembali, st.session_state["nama_desa"]))
+                    conn.commit()
+                    st.success("✅ Tersimpan! Fisik Zakat, Sisa Kupon, dan BAST Cetak sudah disinkronkan otomatis.")
+                    st.rerun()
 
     df_setoran = pd.read_sql_query(f"SELECT id as 'ID', nama_dkm as 'Nama DKM', (jiwa_beras + jiwa_uang) as 'Total Jiwa', total_beras as 'Beras (Kg)', total_uang as 'Uang (Rp)', infaq as 'Infaq (Rp)' FROM setoran_dkm WHERE nama_desa = '{st.session_state['nama_desa']}' ORDER BY id DESC", conn)
     if not df_setoran.empty:
@@ -801,21 +634,25 @@ elif pilihan_menu == "📥 Penerimaan Zakat":
                 pil_edit = st.selectbox("Pilih Data:", ["Pilih..."] + [f"{r['ID']} - {r['Nama DKM']}" for _, r in df_setoran.iterrows()], key="e_pen_desa")
                 if pil_edit != "Pilih...":
                     id_e = pil_edit.split(" - ")[0]
-                    c.execute("SELECT kupon_terjual, infaq FROM setoran_dkm WHERE id=?", (id_e,))
+                    c.execute("SELECT kupon_diterima, kupon_terjual, infaq FROM setoran_dkm WHERE id=?", (id_e,))
                     r_e = c.fetchone()
                     if r_e:
-                        uang_cash_lama = float(r_e[1]) - float(r_e[0] * nom_kupon) if float(r_e[1]) >= float(r_e[0] * nom_kupon) else float(r_e[1])
+                        uang_cash_lama = float(r_e[2]) - float(r_e[1] * nom_kupon) if float(r_e[2]) >= float(r_e[1] * nom_kupon) else float(r_e[2])
                         with st.form("f_e_pen_desa"):
-                            st.info("Edit nilai Kupon dan Tunai untuk menyesuaikan Total Infaq.")
-                            e_kupon = st.number_input("Kupon Terjual Baru:", value=int(r_e[0]))
-                            e_tunai = st.number_input("Uang Infaq Tunai Baru (Rp):", value=int(uang_cash_lama), step=1000)
+                            st.info("Sistem akan otomatis menyesuaikan sisa kupon dan total Infaq.")
+                            e_terima = st.number_input("Kupon Diterima (Lembar):", value=int(r_e[0]))
+                            e_kupon = st.number_input("Kupon Terjual (Lembar):", value=int(r_e[1]))
+                            e_tunai = st.number_input("Uang Infaq Tunai Bebas (Rp):", value=int(uang_cash_lama), step=1000)
+                            
                             if st.form_submit_button("Simpan Perubahan Infaq", width='stretch'):
+                                e_kembali = e_terima - e_kupon
+                                if e_kembali < 0: e_kembali = 0
                                 in_rp_baru = float(e_tunai) + float(e_kupon * nom_kupon)
-                                c.execute("UPDATE setoran_dkm SET kupon_terjual=?, infaq=? WHERE id=?", (e_kupon, in_rp_baru, id_e))
+                                c.execute("UPDATE setoran_dkm SET kupon_diterima=?, kupon_terjual=?, kupon_kembali=?, infaq=? WHERE id=?", (e_terima, e_kupon, e_kembali, in_rp_baru, id_e))
                                 conn.commit()
                                 st.rerun()
     conn.close()
-
+    
 elif pilihan_menu == "📤 Distribusi UPZ":
     st.title("📤 Distribusi UPZ Desa")
     conn = sqlite3.connect(DB_NAME)
@@ -1324,6 +1161,67 @@ elif pilihan_menu == "⚙️ Pengaturan":
             conn.commit()
             st.success("✅ Pengaturan berhasil disimpan!")
             st.rerun()
+    conn.close()
+
+elif pilihan_menu == "🖨️ Cetak Laporan PDF":
+    st.title("🖨️ Pencetakan Dokumen Laporan Desa (PDF)")
+    
+    conn = sqlite3.connect(DB_NAME)
+    c = conn.cursor()
+    desa_aktif = st.session_state["nama_desa"]
+
+    col1, col2 = st.columns([1, 1.5])
+    with col1:
+        st.subheader("Atur Titimangsa Surat")
+        with st.container(border=True):
+            no_ba = st.text_input("Nomor Surat:", value=f"001/BAST/UPZ-DESA/III/{datetime.datetime.now().year}")
+            tgl_ba = st.text_input("Tanggal Surat:", value="15 Ramadhan 1446")
+            tempat_ba = st.text_input("Tempat TTD:", value=desa_aktif.capitalize())
+
+    with col2:
+        st.subheader("Daftar Dokumen Desa Siap Unduh")
+        
+        with st.expander("📄 Format D3 (Rekapitulasi 100%)", expanded=True):
+            if st.button("🔄 Buat / Perbarui D3", width='stretch'):
+                st.session_state['pdf_d3'] = mc.cetak_d3_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba, no_ba)
+            if 'pdf_d3' in st.session_state:
+                st.download_button("📥 KLIK UNTUK UNDUH PDF D3", data=st.session_state['pdf_d3'], file_name=f"Format_D3_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+
+        with st.expander("📄 Format D2 (Rincian Penerimaan Per DKM)"):
+            if st.button("🔄 Buat / Perbarui D2", width='stretch'):
+                st.session_state['pdf_d2'] = mc.cetak_d2_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_d2' in st.session_state:
+                st.download_button("📥 KLIK UNTUK UNDUH PDF D2", data=st.session_state['pdf_d2'], file_name=f"Format_D2_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+
+        with st.expander("📄 Format D4 & D5 (Distribusi Sabilillah)"):
+            if st.button("🔄 Buat / Perbarui D4 & D5", width='stretch'):
+                st.session_state['pdf_d45'] = mc.cetak_d45_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_d45' in st.session_state:
+                st.download_button("📥 KLIK UNTUK UNDUH PDF D4 & D5", data=st.session_state['pdf_d45'], file_name=f"Format_D4_D5_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+
+        with st.expander("📄 Format D6 (Asnaf Amilin)"):
+            if st.button("🔄 Buat / Perbarui D6", width='stretch'):
+                st.session_state['pdf_d6'] = mc.cetak_d6_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_d6' in st.session_state:
+                st.download_button("📥 KLIK UNTUK UNDUH PDF D6", data=st.session_state['pdf_d6'], file_name=f"Format_D6_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+                
+        with st.expander("🎟️ BAST Kupon Infaq"):
+            if st.button("🔄 Buat / Perbarui Kupon", width='stretch'):
+                st.session_state['pdf_kupon'] = mc.cetak_kupon_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_kupon' in st.session_state:
+                st.download_button("📥 KLIK UNTUK UNDUH BAST KUPON", data=st.session_state['pdf_kupon'], file_name=f"BAST_Kupon_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+                
+        with st.expander("🐄 Laporan Hewan Qurban (Desa)"):
+            if st.button("🔄 Buat Laporan Qurban", width='stretch'):
+                st.session_state['pdf_q_desa'] = mc.cetak_qurban_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_q_desa' in st.session_state:
+                st.download_button("📥 UNDUH PDF QURBAN", data=st.session_state['pdf_q_desa'], file_name=f"Laporan_Qurban_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
+
+        with st.expander("🕌 Laporan Majlis Ta'lim (Desa)"):
+            if st.button("🔄 Buat Laporan Majlis", width='stretch'):
+                st.session_state['pdf_m_desa'] = mc.cetak_majlis_desa(DB_NAME, desa_aktif, tempat_ba, tgl_ba)
+            if 'pdf_m_desa' in st.session_state:
+                st.download_button("📥 UNDUH PDF MAJLIS", data=st.session_state['pdf_m_desa'], file_name=f"Laporan_Majlis_{desa_aktif}.pdf", mime="application/pdf", width='stretch')
     conn.close()
 
 # MENU CETAK YANG SEMPAT HILANG TELAH DIKEMBALIKAN KE SINI!

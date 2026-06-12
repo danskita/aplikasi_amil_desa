@@ -346,174 +346,22 @@ def cetak_kwitansi(nama_lembaga, nominal_rp, untuk_pembayaran, tempat_tgl):
     return export_pdf(pdf)
 
 # ==========================================
-# FUNGSI CETAK QURBAN & MAJLIS (DESA & KEC)
-# ==========================================
-def cetak_qurban_desa(db_name, nama_desa, tempat_ba, tgl_ba):
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(15, 15, 15); pdf.add_page()
-    try:
-        kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
-        conn = sqlite3.connect(db_name); c = conn.cursor()
-        c.execute("SELECT tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban WHERE nama_desa COLLATE NOCASE = ? ORDER BY tahun DESC, nama_dkm ASC", (nama_desa,))
-        rows = c.fetchall() or []
-        conn.close()
-
-        cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 8, "LAPORAN DATA HEWAN QURBAN", ln=1, align="C"); pdf.ln(5)
-
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(20, 8, "TAHUN", border=1, align="C")
-        pdf.cell(60, 8, "NAMA DKM / WILAYAH", border=1, align="C"); pdf.cell(30, 8, "JENIS HEWAN", border=1, align="C")
-        pdf.cell(30, 8, "JUMLAH", border=1, align="C"); pdf.cell(30, 8, "MUDHOHI", border=1, align="C", ln=1)
-
-        pdf.set_font("Arial", "", 10)
-        t_hewan, t_mudhohi = 0, 0
-        for i, r in enumerate(rows):
-            h_val = int(r[3] or 0); m_val = int(r[4] or 0)
-            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(20, 8, str(r[0]), border=1, align="C")
-            pdf.cell(60, 8, str(r[1])[:30], border=1); pdf.cell(30, 8, str(r[2]), border=1, align="C")
-            pdf.cell(30, 8, f"{h_val} Ekor", border=1, align="C"); pdf.cell(30, 8, f"{m_val} Orang", border=1, align="C", ln=1)
-            t_hewan += h_val; t_mudhohi += m_val
-
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(120, 8, "TOTAL KESELURUHAN", border=1, align="C"); pdf.cell(30, 8, f"{t_hewan} Ekor", border=1, align="C")
-        pdf.cell(30, 8, f"{t_mudhohi} Orang", border=1, align="C", ln=1)
-
-        pdf.ln(15); pdf.set_font("Arial", "", 11)
-        pdf.cell(90, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
-        pdf.cell(90, 6, "Kepala Desa,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Desa,", border=0, align="C", ln=1)
-        pdf.ln(20); pdf.set_font("Arial", "B", 11)
-        pdf.cell(90, 6, f"( {kades} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
-    except Exception as e:
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Error Generate Qurban Desa: {str(e)}", ln=1)
-    return export_pdf(pdf)
-
-def cetak_majlis_desa(db_name, nama_desa, tempat_ba, tgl_ba):
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(15, 15, 15); pdf.add_page()
-    try:
-        kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
-        conn = sqlite3.connect(db_name); c = conn.cursor()
-        c.execute("SELECT nama_majlis, pimpinan FROM majlis_talim WHERE nama_desa COLLATE NOCASE = ? ORDER BY nama_majlis ASC", (nama_desa,))
-        rows = c.fetchall() or []
-        conn.close()
-
-        cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
-
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 8, "LAPORAN DATA MAJLIS TA'LIM", ln=1, align="C"); pdf.ln(5)
-
-        pdf.set_font("Arial", "B", 11)
-        pdf.cell(15, 8, "NO", border=1, align="C"); pdf.cell(85, 8, "NAMA MAJLIS TA'LIM", border=1, align="C")
-        pdf.cell(80, 8, "NAMA PIMPINAN", border=1, align="C", ln=1)
-
-        pdf.set_font("Arial", "", 11)
-        for i, r in enumerate(rows):
-            pdf.cell(15, 8, str(i+1), border=1, align="C"); pdf.cell(85, 8, str(r[0])[:40], border=1)
-            pdf.cell(80, 8, str(r[1])[:35], border=1, ln=1)
-
-        pdf.ln(15); pdf.set_font("Arial", "", 11)
-        pdf.cell(90, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
-        pdf.cell(90, 6, "Kepala Desa,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Desa,", border=0, align="C", ln=1)
-        pdf.ln(20); pdf.set_font("Arial", "B", 11)
-        pdf.cell(90, 6, f"( {kades} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
-    except Exception as e:
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Error Generate Majlis Desa: {str(e)}", ln=1)
-    return export_pdf(pdf)
-
-def cetak_rekap_qurban_kec(db_name, tempat_ba, tgl_ba):
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(10, 10, 10); pdf.add_page()
-    try:
-        kec, kab, ketua, sek, logo = get_data_kecamatan(db_name)
-        conn = sqlite3.connect(db_name); c = conn.cursor()
-        c.execute("SELECT nama_desa, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban ORDER BY nama_desa ASC")
-        rows = c.fetchall() or []
-        conn.close()
-
-        cetak_kop_surat(pdf, "KECAMATAN", kec, kec, kab, logo)
-
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 8, "REKAPITULASI HEWAN QURBAN TINGKAT KECAMATAN", ln=1, align="C"); pdf.ln(5)
-
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(50, 8, "ASAL DESA", border=1, align="C")
-        pdf.cell(40, 8, "JENIS HEWAN", border=1, align="C"); pdf.cell(45, 8, "JUMLAH (Ekor)", border=1, align="C")
-        pdf.cell(45, 8, "MUDHOHI (Orang)", border=1, align="C", ln=1)
-
-        pdf.set_font("Arial", "", 10)
-        t_hewan, t_mudhohi = 0, 0
-        for i, r in enumerate(rows):
-            h_val = int(r[2] or 0); m_val = int(r[3] or 0)
-            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(50, 8, str(r[0])[:25], border=1)
-            pdf.cell(40, 8, str(r[1]), border=1, align="C"); pdf.cell(45, 8, str(h_val), border=1, align="C")
-            pdf.cell(45, 8, str(m_val), border=1, align="C", ln=1)
-            t_hewan += h_val; t_mudhohi += m_val
-
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(100, 8, "TOTAL KESELURUHAN", border=1, align="C"); pdf.cell(45, 8, f"{t_hewan} Ekor", border=1, align="C")
-        pdf.cell(45, 8, f"{t_mudhohi} Orang", border=1, align="C", ln=1)
-
-        pdf.ln(15); pdf.set_font("Arial", "", 11)
-        pdf.cell(100, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
-        pdf.cell(100, 6, "Sekretaris UPZ,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Kecamatan,", border=0, align="C", ln=1)
-        pdf.ln(20); pdf.set_font("Arial", "B", 11)
-        pdf.cell(100, 6, f"( {sek} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
-    except Exception as e:
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Error Generate Qurban Kec: {str(e)}", ln=1)
-    return export_pdf(pdf)
-
-def cetak_rekap_majlis_kec(db_name, tempat_ba, tgl_ba):
-    pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(10, 10, 10); pdf.add_page()
-    try:
-        kec, kab, ketua, sek, logo = get_data_kecamatan(db_name)
-        conn = sqlite3.connect(db_name); c = conn.cursor()
-        c.execute("SELECT nama_desa, nama_majlis, pimpinan FROM majlis_talim ORDER BY nama_desa ASC, nama_majlis ASC")
-        rows = c.fetchall() or []
-        conn.close()
-
-        cetak_kop_surat(pdf, "KECAMATAN", kec, kec, kab, logo)
-
-        pdf.set_font("Arial", "B", 14)
-        pdf.cell(0, 8, "DATA REKAPITULASI MAJLIS TA'LIM", ln=1, align="C"); pdf.ln(5)
-
-        pdf.set_font("Arial", "B", 10)
-        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(50, 8, "ASAL DESA", border=1, align="C")
-        pdf.cell(70, 8, "NAMA MAJLIS TA'LIM", border=1, align="C"); pdf.cell(60, 8, "PIMPINAN", border=1, align="C", ln=1)
-
-        pdf.set_font("Arial", "", 10)
-        for i, r in enumerate(rows):
-            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(50, 8, str(r[0])[:25], border=1)
-            pdf.cell(70, 8, str(r[1])[:35], border=1); pdf.cell(60, 8, str(r[2])[:30], border=1, ln=1)
-
-        pdf.ln(15); pdf.set_font("Arial", "", 11)
-        pdf.cell(100, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
-        pdf.cell(100, 6, "Sekretaris UPZ,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Kecamatan,", border=0, align="C", ln=1)
-        pdf.ln(20); pdf.set_font("Arial", "B", 11)
-        pdf.cell(100, 6, f"( {sek} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
-    except Exception as e:
-        pdf.set_font("Arial", "B", 12)
-        pdf.cell(0, 10, f"Error Generate Majlis Kec: {str(e)}", ln=1)
-    return export_pdf(pdf)
-
-# ==========================================
 # FUNGSI LAPORAN LAIN-LAIN (DESA)
 # ==========================================
 def cetak_d3_desa(db_name, nama_desa, tempat_ba, tgl_ba, no_ba):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(15, 15, 15); pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
     try:
         kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
         conn = sqlite3.connect(db_name); c = conn.cursor()
         c.execute("SELECT SUM(jiwa_beras), SUM(jiwa_uang), SUM(total_beras), SUM(total_uang), SUM(infaq) FROM setoran_dkm WHERE nama_desa COLLATE NOCASE = ?", (nama_desa,))
         tot = c.fetchone()
-        t_jb = float(tot[0] or 0); t_ju = float(tot[1] or 0)
-        t_tb = float(tot[2] or 0.0); t_tu = float(tot[3] or 0.0); t_infaq = float(tot[4] or 0.0)
+        t_jb = float(tot[0] or 0) if tot else 0
+        t_ju = float(tot[1] or 0) if tot else 0
+        t_tb = float(tot[2] or 0.0) if tot else 0.0
+        t_tu = float(tot[3] or 0.0) if tot else 0.0
+        t_infaq = float(tot[4] or 0.0) if tot else 0.0
         conn.close()
 
         cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
@@ -563,12 +411,14 @@ def cetak_d3_desa(db_name, nama_desa, tempat_ba, tgl_ba, no_ba):
 
 def cetak_d2_desa(db_name, nama_desa, tempat_ba, tgl_ba):
     pdf = FPDF(orientation="L", unit="mm", format="A4")
-    pdf.set_margins(10, 10, 10); pdf.add_page()
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
     try:
         kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
         conn = sqlite3.connect(db_name); c = conn.cursor()
         c.execute("SELECT nama_dkm, jiwa_beras, jiwa_uang, total_beras, total_uang, infaq FROM setoran_dkm WHERE nama_desa COLLATE NOCASE = ?", (nama_desa,))
-        rows = c.fetchall() or []; conn.close()
+        rows = c.fetchall() or []
+        conn.close()
 
         cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo, True)
         
@@ -609,12 +459,14 @@ def cetak_d2_desa(db_name, nama_desa, tempat_ba, tgl_ba):
 
 def cetak_d45_desa(db_name, nama_desa, tempat_ba, tgl_ba):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(10, 10, 10); pdf.add_page()
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
     try:
         kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
         conn = sqlite3.connect(db_name); c = conn.cursor()
         c.execute("SELECT program, penerima, beras, uang FROM sabilillah WHERE nama_desa COLLATE NOCASE = ?", (nama_desa,))
-        rows = c.fetchall() or []; conn.close()
+        rows = c.fetchall() or []
+        conn.close()
 
         cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
         
@@ -649,12 +501,14 @@ def cetak_d45_desa(db_name, nama_desa, tempat_ba, tgl_ba):
 
 def cetak_d6_desa(db_name, nama_desa, tempat_ba, tgl_ba):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(10, 10, 10); pdf.add_page()
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
     try:
         kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
         conn = sqlite3.connect(db_name); c = conn.cursor()
         c.execute("SELECT nama, jabatan, beras, uang FROM amilin WHERE nama_desa COLLATE NOCASE = ?", (nama_desa,))
-        rows = c.fetchall() or []; conn.close()
+        rows = c.fetchall() or []
+        conn.close()
 
         cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
         
@@ -689,19 +543,23 @@ def cetak_d6_desa(db_name, nama_desa, tempat_ba, tgl_ba):
 
 def cetak_kupon_desa(db_name, nama_desa, tempat_ba, tgl_ba):
     pdf = FPDF(orientation="P", unit="mm", format="A4")
-    pdf.set_margins(15, 15, 15); pdf.add_page()
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
     try:
         kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
         conn = sqlite3.connect(db_name); c = conn.cursor()
         c.execute("SELECT SUM(kupon_diterima), SUM(kupon_terjual), SUM(kupon_kembali) FROM setoran_dkm WHERE nama_desa COLLATE NOCASE = ?", (nama_desa,))
-        row = c.fetchone(); conn.close()
+        row = c.fetchone()
+        conn.close()
         k_terima = int(row[0] or 0) if row else 0
         k_jual = int(row[1] or 0) if row else 0
         k_balik = int(row[2] or 0) if row else 0
 
         cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
         
-        pdf.set_font("Arial", "B", 14); pdf.cell(0, 8, "SURAT BERITA ACARA SERAH TERIMA KUPON INFAQ", ln=1, align="C"); pdf.ln(10)
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 8, "SURAT BERITA ACARA SERAH TERIMA KUPON INFAQ", ln=1, align="C")
+        pdf.ln(10)
         
         pdf.set_font("Arial", "", 12)
         pdf.multi_cell(0, 6, f"Pada hari ini telah diserahterimakan hasil rekapitulasi penggunaan Kupon Infaq Ramadhan pada UPZ Desa {nama_desa.capitalize()} dengan rincian total sebagai berikut:")
@@ -719,4 +577,166 @@ def cetak_kupon_desa(db_name, nama_desa, tempat_ba, tgl_ba):
     except Exception as e:
         pdf.set_font("Arial", "B", 12)
         pdf.cell(0, 10, f"Error Generate Kupon: {str(e)}", ln=1)
+    return export_pdf(pdf)
+
+# ==========================================
+# FUNGSI CETAK QURBAN & MAJLIS (DESA)
+# ==========================================
+def cetak_qurban_desa(db_name, nama_desa, tempat_ba, tgl_ba):
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
+    try:
+        kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
+        conn = sqlite3.connect(db_name); c = conn.cursor()
+        c.execute("SELECT tahun, nama_dkm, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban WHERE nama_desa COLLATE NOCASE = ? ORDER BY tahun DESC, nama_dkm ASC", (nama_desa,))
+        rows = c.fetchall() or []
+        conn.close()
+
+        cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 8, "LAPORAN DATA HEWAN QURBAN", ln=1, align="C")
+        pdf.ln(5)
+
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(20, 8, "TAHUN", border=1, align="C")
+        pdf.cell(60, 8, "NAMA DKM / WILAYAH", border=1, align="C"); pdf.cell(30, 8, "JENIS HEWAN", border=1, align="C")
+        pdf.cell(30, 8, "JUMLAH", border=1, align="C"); pdf.cell(30, 8, "MUDHOHI", border=1, align="C", ln=1)
+
+        pdf.set_font("Arial", "", 10)
+        t_hewan, t_mudhohi = 0, 0
+        for i, r in enumerate(rows):
+            h_val = int(r[3] or 0); m_val = int(r[4] or 0)
+            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(20, 8, str(r[0]), border=1, align="C")
+            pdf.cell(60, 8, str(r[1])[:30], border=1); pdf.cell(30, 8, str(r[2]), border=1, align="C")
+            pdf.cell(30, 8, f"{h_val} Ekor", border=1, align="C"); pdf.cell(30, 8, f"{m_val} Orang", border=1, align="C", ln=1)
+            t_hewan += h_val; t_mudhohi += m_val
+
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(120, 8, "TOTAL KESELURUHAN", border=1, align="C"); pdf.cell(30, 8, f"{t_hewan} Ekor", border=1, align="C")
+        pdf.cell(30, 8, f"{t_mudhohi} Orang", border=1, align="C", ln=1)
+
+        pdf.ln(15); pdf.set_font("Arial", "", 11)
+        pdf.cell(90, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
+        pdf.cell(90, 6, "Kepala Desa,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Desa,", border=0, align="C", ln=1)
+        pdf.ln(20); pdf.set_font("Arial", "B", 11)
+        pdf.cell(90, 6, f"( {kades} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
+    except Exception as e:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Error Generate Qurban Desa: {str(e)}", ln=1)
+    return export_pdf(pdf)
+
+def cetak_majlis_desa(db_name, nama_desa, tempat_ba, tgl_ba):
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(15, 15, 15)
+    pdf.add_page()
+    try:
+        kec, kab, kades, ketua, ben, logo = get_data_desa(db_name, nama_desa)
+        conn = sqlite3.connect(db_name); c = conn.cursor()
+        c.execute("SELECT nama_majlis, pimpinan FROM majlis_talim WHERE nama_desa COLLATE NOCASE = ? ORDER BY nama_majlis ASC", (nama_desa,))
+        rows = c.fetchall() or []
+        conn.close()
+
+        cetak_kop_surat(pdf, "DESA", nama_desa, kec, kab, logo)
+
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 8, "LAPORAN DATA MAJLIS TA'LIM", ln=1, align="C"); pdf.ln(5)
+
+        pdf.set_font("Arial", "B", 11)
+        pdf.cell(15, 8, "NO", border=1, align="C"); pdf.cell(85, 8, "NAMA MAJLIS TA'LIM", border=1, align="C")
+        pdf.cell(80, 8, "NAMA PIMPINAN", border=1, align="C", ln=1)
+
+        pdf.set_font("Arial", "", 11)
+        for i, r in enumerate(rows):
+            pdf.cell(15, 8, str(i+1), border=1, align="C"); pdf.cell(85, 8, str(r[0])[:40], border=1)
+            pdf.cell(80, 8, str(r[1])[:35], border=1, ln=1)
+
+        pdf.ln(15); pdf.set_font("Arial", "", 11)
+        pdf.cell(90, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
+        pdf.cell(90, 6, "Kepala Desa,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Desa,", border=0, align="C", ln=1)
+        pdf.ln(20); pdf.set_font("Arial", "B", 11)
+        pdf.cell(90, 6, f"( {kades} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
+    except Exception as e:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Error Generate Majlis Desa: {str(e)}", ln=1)
+    return export_pdf(pdf)
+
+def cetak_rekap_qurban_kec(db_name, tempat_ba, tgl_ba):
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
+    try:
+        kec, kab, ketua, sek, logo = get_data_kecamatan(db_name)
+        conn = sqlite3.connect(db_name); c = conn.cursor()
+        c.execute("SELECT nama_desa, jenis_hewan, jumlah_hewan, jumlah_mudhohi FROM qurban ORDER BY nama_desa ASC")
+        rows = c.fetchall() or []
+        conn.close()
+
+        cetak_kop_surat(pdf, "KECAMATAN", kec, kec, kab, logo)
+
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 8, "REKAPITULASI HEWAN QURBAN TINGKAT KECAMATAN", ln=1, align="C")
+        pdf.ln(5)
+
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(50, 8, "ASAL DESA", border=1, align="C")
+        pdf.cell(40, 8, "JENIS HEWAN", border=1, align="C"); pdf.cell(45, 8, "JUMLAH (Ekor)", border=1, align="C")
+        pdf.cell(45, 8, "MUDHOHI (Orang)", border=1, align="C", ln=1)
+
+        pdf.set_font("Arial", "", 10)
+        t_hewan, t_mudhohi = 0, 0
+        for i, r in enumerate(rows):
+            h_val = int(r[2] or 0); m_val = int(r[3] or 0)
+            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(50, 8, str(r[0])[:25], border=1)
+            pdf.cell(40, 8, str(r[1]), border=1, align="C"); pdf.cell(45, 8, str(h_val), border=1, align="C")
+            pdf.cell(45, 8, str(m_val), border=1, align="C", ln=1)
+            t_hewan += h_val; t_mudhohi += m_val
+
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(100, 8, "TOTAL KESELURUHAN", border=1, align="C"); pdf.cell(45, 8, f"{t_hewan} Ekor", border=1, align="C")
+        pdf.cell(45, 8, f"{t_mudhohi} Orang", border=1, align="C", ln=1)
+
+        pdf.ln(15); pdf.set_font("Arial", "", 11)
+        pdf.cell(100, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
+        pdf.cell(100, 6, "Sekretaris UPZ,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Kecamatan,", border=0, align="C", ln=1)
+        pdf.ln(20); pdf.set_font("Arial", "B", 11)
+        pdf.cell(100, 6, f"( {sek} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
+    except Exception as e:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Error Generate Qurban Kec: {str(e)}", ln=1)
+    return export_pdf(pdf)
+
+def cetak_rekap_majlis_kec(db_name, tempat_ba, tgl_ba):
+    pdf = FPDF(orientation="P", unit="mm", format="A4")
+    pdf.set_margins(10, 10, 10)
+    pdf.add_page()
+    try:
+        kec, kab, ketua, sek, logo = get_data_kecamatan(db_name)
+        conn = sqlite3.connect(db_name); c = conn.cursor()
+        c.execute("SELECT nama_desa, nama_majlis, pimpinan FROM majlis_talim ORDER BY nama_desa ASC, nama_majlis ASC")
+        rows = c.fetchall() or []
+        conn.close()
+
+        cetak_kop_surat(pdf, "KECAMATAN", kec, kec, kab, logo)
+
+        pdf.set_font("Arial", "B", 14)
+        pdf.cell(0, 8, "DATA REKAPITULASI MAJLIS TA'LIM", ln=1, align="C"); pdf.ln(5)
+
+        pdf.set_font("Arial", "B", 10)
+        pdf.cell(10, 8, "NO", border=1, align="C"); pdf.cell(50, 8, "ASAL DESA", border=1, align="C")
+        pdf.cell(70, 8, "NAMA MAJLIS TA'LIM", border=1, align="C"); pdf.cell(60, 8, "PIMPINAN", border=1, align="C", ln=1)
+
+        pdf.set_font("Arial", "", 10)
+        for i, r in enumerate(rows):
+            pdf.cell(10, 8, str(i+1), border=1, align="C"); pdf.cell(50, 8, str(r[0])[:25], border=1)
+            pdf.cell(70, 8, str(r[1])[:35], border=1); pdf.cell(60, 8, str(r[2])[:30], border=1, ln=1)
+
+        pdf.ln(15); pdf.set_font("Arial", "", 11)
+        pdf.cell(100, 6, "", border=0); pdf.cell(90, 6, f"{tempat_ba}, {tgl_ba}", border=0, align="C", ln=1)
+        pdf.cell(100, 6, "Sekretaris UPZ,", border=0, align="C"); pdf.cell(90, 6, "Ketua UPZ Kecamatan,", border=0, align="C", ln=1)
+        pdf.ln(20); pdf.set_font("Arial", "B", 11)
+        pdf.cell(100, 6, f"( {sek} )", border=0, align="C"); pdf.cell(90, 6, f"( {ketua} )", border=0, align="C", ln=1)
+    except Exception as e:
+        pdf.set_font("Arial", "B", 12)
+        pdf.cell(0, 10, f"Error Generate Majlis Kec: {str(e)}", ln=1)
     return export_pdf(pdf)
